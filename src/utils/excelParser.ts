@@ -14,6 +14,55 @@ export interface ClientePlan {
   cuotasVencidas: number;
 }
 
+export interface ClienteData {
+  id: number;
+  suscripcion: string;
+  nombre: string;
+  estadoNormalizado: string;
+  modeloP: string;
+  telefono: string;
+  esOportunidad: boolean;
+  esDigital: boolean;
+}
+
+const STORAGE_KEY = 'ruiz_cartera_general';
+
+export const guardarCartera = (datos: ClienteData[]): void => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(datos));
+  } catch {}
+};
+
+export const cargarCartera = (): ClienteData[] => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    return raw ? JSON.parse(raw) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const limpiarCartera = (): void => {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+  } catch {}
+};
+
+export const parsearExcel = async (file: File): Promise<ClienteData[]> => {
+  const buffer = await file.arrayBuffer();
+  const planes = procesarArchivoExcel(buffer);
+  return planes.map((p, i) => ({
+    id: i,
+    suscripcion: p.suscripcion,
+    nombre: p.titular,
+    estadoNormalizado: p.estado,
+    modeloP: p.modelo,
+    telefono: p.telefono,
+    esOportunidad: p.esOportunidad,
+    esDigital: p.suscripcion.startsWith('D') || p.suscripcion.includes('DIG'),
+  }));
+};
+
 // 1. Normalización de estados según reglas de negocio
 export const normalizarEstadoSAP = (estadoRaw: string): string => {
   const estadoUpper = (estadoRaw || '').toUpperCase();
