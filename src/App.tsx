@@ -471,7 +471,7 @@ export default function App() {
                     </span>
                   </div>
 
-                  <div className="bg-gradient-to-b from-gray-100 to-gray-300 p-6 flex items-center justify-center h-44">
+                  <div className="bg-gradient-to-b from-gray-100 to-gray-300 w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
                     <img
                       src={auto.imgVitrina}
                       alt={auto.nombre}
@@ -832,7 +832,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2">
               {/* PANEL IZQUIERDO */}
               <div className="p-6 sm:p-8 flex flex-col gap-5 border-b md:border-b-0 md:border-r border-white/10">
-                <div className="bg-gradient-to-b from-gray-100 to-gray-300 rounded-2xl h-56 flex items-center justify-center overflow-hidden">
+                <div className="bg-gradient-to-b from-gray-100 to-gray-300 rounded-2xl w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
                   <img
                     src={planDetalle.imgVitrina}
                     alt={planDetalle.nombre}

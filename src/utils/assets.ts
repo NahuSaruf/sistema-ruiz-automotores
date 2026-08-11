@@ -14,6 +14,11 @@ export const TOTAL_FOTOS_360 = 8;
 
 const PREFIJOS_ARCHIVO: Record<string, string> = {
   'Arkana E-Tech Hybrid': 'ARKANA HYBRID E-TECH',
+  // Los prefijos de Boreal siempre fueron correctos acá; el bug real estaba en
+  // que Windows (insensible a mayúsculas) dejó ~17 fotogramas trackeados en git
+  // bajo el nombre viejo "Boreal Evolution/Iconic/Techno N.png" en vez de éste
+  // — funcionaba en local pero rompía en Vercel (Linux, sensible a mayúsculas).
+  // Corregido renombrando los archivos en el repo el 12/08/2026.
   'Boreal Evolution': 'BOREAL evolution',
   'Boreal Techno': 'BOREAL techno',
   'Boreal Iconic': 'BOREAL iconic',

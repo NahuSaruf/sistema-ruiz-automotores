@@ -211,26 +211,30 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
           </p>
         </div>
 
-        {/* VISTA PREVIA (BOREAL Y KOLEOS LADO A LADO) */}
+        {/* VISTA PREVIA (BOREAL Y KOLEOS LADO A LADO) — fotograma 2 (portada estática) */}
         <div className="relative md:absolute md:right-6 lg:right-12 md:bottom-0 flex items-end justify-center gap-1 sm:gap-3 pointer-events-none z-10 my-2 md:my-0">
-          <img
-            src="/Boreal.png"
-            alt="Nuevo Renault Boreal"
-            className="w-32 sm:w-44 md:w-52 h-auto object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-            }}
-          />
-          <img
-            src="/Koleos.png"
-            alt="Nuevo Renault Koleos"
-            className="w-32 sm:w-44 md:w-52 h-auto object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
-            onError={(e) => {
-              const target = e.target as HTMLImageElement;
-              target.style.display = 'none';
-            }}
-          />
+          <div className="w-32 sm:w-44 md:w-52 h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
+            <img
+              src={get360Frame('Boreal Evolution', 2)}
+              alt="Nuevo Renault Boreal"
+              className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+              }}
+            />
+          </div>
+          <div className="w-32 sm:w-44 md:w-52 h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
+            <img
+              src={get360Frame('Koleos Techno', 2)}
+              alt="Nuevo Renault Koleos"
+              className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
+              onError={(e) => {
+                const target = e.target as HTMLImageElement;
+                target.style.display = 'none';
+              }}
+            />
+          </div>
         </div>
       </motion.div>
 
