@@ -18,9 +18,16 @@ export const config = {
 
 const CCA_URL = 'https://cca.com.ar/estadisticas/';
 
-const REGEX_TOTAL = /([\d.,]{4,})\s*(?:suscripciones|subscripciones)/i;
-const REGEX_VARIACION = /variaci[oó]n[^%+\-\d]{0,30}([+-]?[\d.,]+)\s*%/i;
-const REGEX_RENAULT = /Renault[^%\d]{0,60}([\d.,]+)\s*%/i;
+// Patrones verificados contra el texto real renderizado por cca.com.ar (relevado con
+// el modo debug de este mismo endpoint el 11/08/2026). La página muestra:
+//   TOTAL SUSCRIPCIONES\n184.881          -> total del período
+//   VARIACIÓN MENSUAL\n↑ 12,2 %           -> variación, con flecha (no signo +/-) indicando dirección
+//   RENAULT\n22.448                       -> conteo de suscripciones de Renault (no un %)
+// No hay una cuota de mercado (%) explícita por marca: se calcula como
+// suscripcionesRenault / totalSuscripciones.
+const REGEX_TOTAL = /TOTAL SUSCRIPCIONES\s*\n?\s*([\d.,]+)/i;
+const REGEX_VARIACION = /VARIACI[OÓ]N MENSUAL[\s\S]{0,20}?(↑|↓)\s*([\d.,]+)\s*%/i;
+const REGEX_RENAULT = /RENAULT\s*\n?\s*([\d.,]+)/i;
 
 const numeroDesdeTexto = (texto: string): number =>
   Number(texto.replace(/\./g, '').replace(',', '.'));
@@ -50,9 +57,9 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const texto = await page.evaluate(() => document.body.innerText);
 
-    // Modo debug temporal (?debug=1): devuelve el texto renderizado crudo para poder
-    // ajustar los patrones de búsqueda contra el contenido real de la página. Sacar
-    // una vez que las regex de abajo estén afinadas.
+    // Modo debug (?debug=1): devuelve el texto renderizado crudo. Se deja disponible
+    // a propósito (no expone nada sensible, es una página pública) para poder re-ajustar
+    // las regex de arriba rápido el día que CCA cambie el diseño de la página.
     if (req.query.debug === '1') {
       res.status(200).json({ ok: true, debug: true, texto });
       return;
@@ -70,12 +77,18 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    const totalSuscripciones = numeroDesdeTexto(totalMatch[1]);
+    const signoVariacion = variacionMatch[1] === '↓' ? -1 : 1;
+    const variacionMensual = signoVariacion * numeroDesdeTexto(variacionMatch[2]);
+    const renaultSuscripciones = numeroDesdeTexto(renaultMatch[1]);
+    const cuotaRenault = totalSuscripciones > 0 ? (renaultSuscripciones / totalSuscripciones) * 100 : 0;
+
     res.status(200).json({
       ok: true,
       datos: {
-        totalSuscripciones: numeroDesdeTexto(totalMatch[1]),
-        variacionMensual: numeroDesdeTexto(variacionMatch[1]),
-        cuotaRenault: numeroDesdeTexto(renaultMatch[1]),
+        totalSuscripciones,
+        variacionMensual,
+        cuotaRenault,
         fechaSincronizacion: new Date().toISOString(),
       },
     });
