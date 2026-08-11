@@ -22,7 +22,7 @@ import {
   nubeConfigurada, guardarCarteraEnNube, guardarAdjudicadosEnNube,
   obtenerCarteraDeNube, obtenerAdjudicadosDeNube,
 } from '../lib/supabase';
-import { ESTADISTICAS_MERCADO_DEFAULT, posicionMarcaPropia } from '../utils/estadisticasMercado';
+import { ESTADISTICAS_MERCADO_DEFAULT, posicionMarcaPropia, ItemRanking } from '../utils/estadisticasMercado';
 import { fetchCCAStats, cargarCacheCCA, CcaStats } from '../services/ccaService';
 
 type AlertaCarga = { agregados: number; omitidos: number; nube: boolean } | null;
@@ -384,6 +384,54 @@ export default function DashboardAdmin() {
     : { posicion: 0, datos: undefined };
   const valorMaximoRanking = vistaActual ? Math.max(...vistaActual.ranking.map((m) => m.valor), 1) : 1;
 
+  // === FILTRO POR MARCA Y COMPARATIVA INTERNA vs. RENAULT ===
+  // null = "Todas" (vista normal por pestañas); con una marca elegida se reemplaza
+  // el panel por la comparativa frente a frente, sin importar qué pestaña estaba activa.
+  const [marcaSeleccionada, setMarcaSeleccionada] = useState<string | null>(null);
+
+  const MARCAS_FILTRO = ['RENAULT', 'FIAT', 'TOYOTA', 'VOLKSWAGEN', 'PEUGEOT', 'CHEVROLET', 'FORD', 'NISSAN'];
+
+  const valorDeMarca = (ranking: ItemRanking[], marca: string): number =>
+    ranking.find((r) => r.marca === marca)?.valor ?? 0;
+
+  const posicionDeMarca = (ranking: ItemRanking[], marca: string): number | null => {
+    const ordenado = [...ranking].sort((a, b) => b.valor - a.valor);
+    const indice = ordenado.findIndex((r) => r.marca === marca);
+    return indice === -1 ? null : indice + 1;
+  };
+
+  const promedioRanking = (ranking: ItemRanking[]): number =>
+    ranking.length > 0 ? ranking.reduce((acc, r) => acc + r.valor, 0) / ranking.length : 0;
+
+  // Trae Suscripciones/FC/Conversión completas (no sólo la pestaña activa), porque
+  // la comparativa muestra las 3 métricas a la vez para la marca elegida.
+  const vistaSuscripciones = obtenerVistaMetrica('suscripciones');
+  const vistaFacturacion = obtenerVistaMetrica('facturacion');
+  const vistaConversion = obtenerVistaMetrica('conversion');
+
+  const comparativaMarca = marcaSeleccionada
+    ? {
+        suscripciones: {
+          marca: valorDeMarca(vistaSuscripciones.ranking, marcaSeleccionada),
+          renault: valorDeMarca(vistaSuscripciones.ranking, 'RENAULT'),
+          promedio: promedioRanking(vistaSuscripciones.ranking),
+        },
+        facturacion: {
+          marca: valorDeMarca(vistaFacturacion.ranking, marcaSeleccionada),
+          renault: valorDeMarca(vistaFacturacion.ranking, 'RENAULT'),
+          promedio: promedioRanking(vistaFacturacion.ranking),
+        },
+        conversion: {
+          marca: valorDeMarca(vistaConversion.ranking, marcaSeleccionada),
+          renault: valorDeMarca(vistaConversion.ranking, 'RENAULT'),
+          promedio: promedioRanking(vistaConversion.ranking),
+        },
+        // "Puesto en el Ranking Nacional" toma Suscripciones como métrica de referencia
+        // (la misma que usa CCA como pestaña por defecto).
+        puestoNacional: posicionDeMarca(vistaSuscripciones.ranking, marcaSeleccionada),
+      }
+    : null;
+
   // Ficha completa por adjudicado: cruza el reporte de Adjudicados con la Cartera
   // General (por Grupo y Orden) para completar DNI y Teléfono, y traduce el modelo
   // SAP a lenguaje comercial para mostrar en la tabla.
@@ -486,7 +534,7 @@ export default function DashboardAdmin() {
   // con acento dorado (#FFCC00 vía yellow-400/500) en vez del fondo gris-900 que usa
   // la variante clara TarjetaMetrica.
   const TarjetaKPIOscura = ({
-    icono: Icono, titulo, valor, tendencia, subtexto, destacada,
+    icono: Icono, titulo, valor, tendencia, subtexto, destacada, onClick,
   }: {
     icono: typeof Users;
     titulo: string;
@@ -494,10 +542,12 @@ export default function DashboardAdmin() {
     tendencia?: number;
     subtexto?: string;
     destacada?: boolean;
+    onClick?: () => void;
   }) => (
     <motion.div
       whileHover={{ y: -4 }}
-      className={`p-5 rounded-2xl border relative overflow-hidden ${
+      onClick={onClick}
+      className={`p-5 rounded-2xl border relative overflow-hidden ${onClick ? 'cursor-pointer hover:border-yellow-500/40' : ''} ${
         destacada ? 'bg-yellow-500/10 border-yellow-500/40 shadow-[0_0_24px_rgba(255,204,0,0.15)]' : 'bg-white/5 border-white/10'
       }`}
     >
@@ -512,6 +562,98 @@ export default function DashboardAdmin() {
       {subtexto && <p className="text-xs font-medium text-gray-500 mt-1">{subtexto}</p>}
     </motion.div>
   );
+
+  // Formatea según la métrica: Conversión va en % con 2 decimales, el resto como
+  // cantidad entera localizada.
+  const formatoValorMercado = (valor: number, sufijo: string): string =>
+    sufijo === '%' ? `${valor.toFixed(2)}%` : valor.toLocaleString('es-AR', { maximumFractionDigits: 0 });
+
+  // Mini tarjeta "marca vs Renault" de la vista Comparativa: dos barras apiladas,
+  // la más alta resaltada en blanco/dorado según quién gane esa métrica.
+  const TarjetaComparativa = ({
+    titulo, nombreMarca, valorMarca, valorRenault, sufijo,
+  }: {
+    titulo: string;
+    nombreMarca: string;
+    valorMarca: number;
+    valorRenault: number;
+    sufijo: string;
+  }) => {
+    const maximo = Math.max(valorMarca, valorRenault, 1);
+    const marcaGana = valorMarca > valorRenault;
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+        <p className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-3">{titulo}</p>
+        <div className="mb-3">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold text-gray-300 truncate pr-2">{nombreMarca}</span>
+            <span className={`text-sm font-black shrink-0 ${marcaGana ? 'text-white' : 'text-gray-500'}`}>
+              {formatoValorMercado(valorMarca, sufijo)}
+            </span>
+          </div>
+          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-white/50 rounded-full" style={{ width: `${(valorMarca / maximo) * 100}%` }} />
+          </div>
+        </div>
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-bold text-yellow-400 flex items-center gap-1">
+              <Crown className="h-3 w-3 fill-yellow-400" /> Renault
+            </span>
+            <span className={`text-sm font-black shrink-0 ${!marcaGana ? 'text-yellow-400' : 'text-gray-500'}`}>
+              {formatoValorMercado(valorRenault, sufijo)}
+            </span>
+          </div>
+          <div className="h-2 w-full bg-white/10 rounded-full overflow-hidden">
+            <div className="h-full bg-yellow-400 rounded-full" style={{ width: `${(valorRenault / maximo) * 100}%` }} />
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // Fila de la barra comparativa "frente a frente": Marca elegida vs. Renault vs.
+  // Promedio del Mercado, para una métrica puntual (Suscripciones/FC/Conversión).
+  const FilaComparativaTriple = ({
+    etiqueta, nombreMarca, valorMarca, valorRenault, valorPromedio, sufijo,
+  }: {
+    etiqueta: string;
+    nombreMarca: string;
+    valorMarca: number;
+    valorRenault: number;
+    valorPromedio: number;
+    sufijo: string;
+  }) => {
+    const maximo = Math.max(valorMarca, valorRenault, valorPromedio, 1);
+    const filas = [
+      { nombre: nombreMarca, valor: valorMarca, color: 'bg-white/50' },
+      { nombre: 'Renault — Plan Rombo', valor: valorRenault, color: 'bg-yellow-400' },
+      { nombre: 'Promedio del Mercado', valor: valorPromedio, color: 'bg-sky-400/70' },
+    ];
+    return (
+      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+        <p className="text-xs font-black uppercase tracking-wide text-gray-400 mb-3">{etiqueta}</p>
+        <div className="space-y-2.5">
+          {filas.map((fila) => (
+            <div key={fila.nombre}>
+              <div className="flex justify-between text-xs font-bold text-gray-300 mb-1">
+                <span>{fila.nombre}</span>
+                <span>{formatoValorMercado(fila.valor, sufijo)}</span>
+              </div>
+              <div className="h-2.5 w-full bg-white/10 rounded-full overflow-hidden">
+                <motion.div
+                  initial={{ width: 0 }}
+                  animate={{ width: `${(fila.valor / maximo) * 100}%` }}
+                  transition={{ duration: 0.5, ease: 'easeOut' }}
+                  className={`h-full rounded-full ${fila.color}`}
+                />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  };
 
   // Gráfico de línea en SVG puro (sin librerías nuevas) para series cortas de puntos
   // mensuales. Pensado para el tema oscuro: fondo transparente, línea/relleno dorado
@@ -1309,34 +1451,152 @@ export default function DashboardAdmin() {
                 </motion.div>
               )}
 
-              {/* Selector de las 4 vistas de CCA */}
-              <div className="flex flex-wrap gap-2 mb-4">
-                {(
-                  [
-                    { clave: 'suscripciones', etiqueta: 'Suscripciones', icono: Users },
-                    { clave: 'facturacion', etiqueta: 'FC (Facturación)', icono: Receipt },
-                    { clave: 'conversion', etiqueta: 'Conversión', icono: Percent },
-                    { clave: 'mercadoTotal', etiqueta: 'Mercado Total', icono: Layers },
-                  ] as const
-                ).map(({ clave, etiqueta, icono: Icono }) => (
+              {/* Filtro por marca: alterna entre la vista normal (Todas) y la
+                  Comparativa Interna de una marca puntual vs. Renault. */}
+              <div className="flex flex-wrap gap-2 mb-3">
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => setMarcaSeleccionada(null)}
+                  className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wide transition-colors ${
+                    marcaSeleccionada === null
+                      ? 'bg-white text-gray-900 shadow-md'
+                      : 'bg-[#0B0F19] text-gray-300 hover:text-white border border-white/10'
+                  }`}
+                >
+                  Todas
+                </motion.button>
+                {MARCAS_FILTRO.map((marca) => (
                   <motion.button
-                    key={clave}
+                    key={marca}
                     whileHover={{ scale: 1.03 }}
                     whileTap={{ scale: 0.97 }}
-                    onClick={() => setVistaMercado(clave)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wide transition-colors ${
-                      vistaMercado === clave
+                    onClick={() => setMarcaSeleccionada(marca)}
+                    className={`px-4 py-2 rounded-xl font-black text-xs uppercase tracking-wide transition-colors flex items-center gap-1.5 ${
+                      marcaSeleccionada === marca
                         ? 'bg-yellow-500 text-gray-900 shadow-md'
                         : 'bg-[#0B0F19] text-gray-300 hover:text-white border border-white/10'
                     }`}
                   >
-                    <Icono className="h-4 w-4" /> {etiqueta}
+                    {marca === 'RENAULT' && <Crown className="h-3.5 w-3.5" />} {marca.charAt(0) + marca.slice(1).toLowerCase()}
                   </motion.button>
                 ))}
               </div>
 
-              {/* Panel oscuro con la vista activa */}
+              {/* Selector de las 4 vistas de CCA — sólo tiene sentido con "Todas" activo,
+                  la Comparativa de marca muestra las 3 métricas juntas. */}
+              {!marcaSeleccionada && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(
+                    [
+                      { clave: 'suscripciones', etiqueta: 'Suscripciones', icono: Users },
+                      { clave: 'facturacion', etiqueta: 'FC (Facturación)', icono: Receipt },
+                      { clave: 'conversion', etiqueta: 'Conversión', icono: Percent },
+                      { clave: 'mercadoTotal', etiqueta: 'Mercado Total', icono: Layers },
+                    ] as const
+                  ).map(({ clave, etiqueta, icono: Icono }) => (
+                    <motion.button
+                      key={clave}
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={() => setVistaMercado(clave)}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wide transition-colors ${
+                        vistaMercado === clave
+                          ? 'bg-yellow-500 text-gray-900 shadow-md'
+                          : 'bg-[#0B0F19] text-gray-300 hover:text-white border border-white/10'
+                      }`}
+                    >
+                      <Icono className="h-4 w-4" /> {etiqueta}
+                    </motion.button>
+                  ))}
+                </div>
+              )}
+
+              {/* Panel oscuro: Comparativa de marca si hay una elegida, si no la vista normal por pestañas */}
               <AnimatePresence mode="wait">
+                {marcaSeleccionada && comparativaMarca ? (
+                  <motion.div
+                    key="comparativa"
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -8 }}
+                    transition={{ duration: 0.25, ease: 'easeOut' }}
+                    className="bg-[#0B0F19] rounded-3xl border border-white/10 shadow-2xl p-6"
+                  >
+                    <div className="flex items-center justify-between flex-wrap gap-2 mb-6">
+                      <h3 className="text-base font-black text-white flex items-center gap-2">
+                        {marcaSeleccionada.charAt(0) + marcaSeleccionada.slice(1).toLowerCase()}
+                        <span className="text-gray-500 text-xs font-bold uppercase">vs.</span>
+                        <Crown className="h-4 w-4 text-yellow-400 fill-yellow-400" /> Renault — Plan Rombo
+                      </h3>
+                      <button
+                        onClick={() => setMarcaSeleccionada(null)}
+                        className="text-xs font-bold text-gray-400 hover:text-white flex items-center gap-1.5 transition-colors"
+                      >
+                        <RefreshCw className="h-3.5 w-3.5" /> Volver a Mercado Total
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                      <TarjetaComparativa
+                        titulo="Suscripciones"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.suscripciones.marca}
+                        valorRenault={comparativaMarca.suscripciones.renault}
+                        sufijo=""
+                      />
+                      <TarjetaComparativa
+                        titulo="Facturación (FC)"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.facturacion.marca}
+                        valorRenault={comparativaMarca.facturacion.renault}
+                        sufijo=""
+                      />
+                      <TarjetaComparativa
+                        titulo="Tasa de Conversión"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.conversion.marca}
+                        valorRenault={comparativaMarca.conversion.renault}
+                        sufijo="%"
+                      />
+                      <TarjetaKPIOscura
+                        icono={Trophy}
+                        titulo="Puesto Ranking Nacional"
+                        valor={comparativaMarca.puestoNacional ? `${comparativaMarca.puestoNacional}°` : '-'}
+                        subtexto={`${marcaSeleccionada.charAt(0) + marcaSeleccionada.slice(1).toLowerCase()} · Suscripciones`}
+                        destacada
+                      />
+                    </div>
+
+                    <h4 className="text-xs font-black uppercase tracking-wide text-gray-400 mb-3">Comparativa Frente a Frente</h4>
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                      <FilaComparativaTriple
+                        etiqueta="Suscripciones"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.suscripciones.marca}
+                        valorRenault={comparativaMarca.suscripciones.renault}
+                        valorPromedio={comparativaMarca.suscripciones.promedio}
+                        sufijo=""
+                      />
+                      <FilaComparativaTriple
+                        etiqueta="Facturación (FC)"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.facturacion.marca}
+                        valorRenault={comparativaMarca.facturacion.renault}
+                        valorPromedio={comparativaMarca.facturacion.promedio}
+                        sufijo=""
+                      />
+                      <FilaComparativaTriple
+                        etiqueta="Conversión"
+                        nombreMarca={marcaSeleccionada}
+                        valorMarca={comparativaMarca.conversion.marca}
+                        valorRenault={comparativaMarca.conversion.renault}
+                        valorPromedio={comparativaMarca.conversion.promedio}
+                        sufijo="%"
+                      />
+                    </div>
+                  </motion.div>
+                ) : (
                 <motion.div
                   key={vistaMercado}
                   initial={{ opacity: 0, y: 8 }}
@@ -1376,7 +1636,13 @@ export default function DashboardAdmin() {
                           tendencia={vistaActual.variacionMensual}
                           subtexto="vs. período anterior"
                         />
-                        <TarjetaKPIOscura icono={Crown} titulo="Marca Líder" valor={vistaActual.marcaLider} />
+                        <TarjetaKPIOscura
+                          icono={Crown}
+                          titulo="Marca Líder"
+                          valor={vistaActual.marcaLider}
+                          subtexto="Ver comparativa vs. Renault"
+                          onClick={() => setMarcaSeleccionada(vistaActual.marcaLider)}
+                        />
                         {vistaActual.promedioMensual != null && (
                           <TarjetaKPIOscura icono={BarChart3} titulo="Promedio Mensual" valor={vistaActual.promedioMensual.toLocaleString('es-AR')} />
                         )}
@@ -1423,13 +1689,18 @@ export default function DashboardAdmin() {
                         {/* Resumen lateral */}
                         <div className="lg:col-span-2 bg-white/5 rounded-2xl border border-white/10 p-5 space-y-4 h-fit">
                           <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">Resumen</h3>
-                          <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={() => setMarcaSeleccionada(vistaActual.marcaLider)}
+                            title={`Ver comparativa de ${vistaActual.marcaLider} vs. Renault`}
+                            className="w-full flex items-center gap-3 text-left rounded-xl hover:bg-white/5 -m-1 p-1 transition-colors"
+                          >
                             <div className="bg-yellow-500/15 p-2 rounded-xl"><Crown className="h-5 w-5 text-yellow-400 fill-yellow-400" /></div>
                             <div>
                               <p className="text-[11px] font-bold text-gray-500 uppercase">Marca Líder</p>
                               <p className="text-lg font-black text-white">{vistaActual.marcaLider}</p>
                             </div>
-                          </div>
+                          </button>
                           <div className="flex items-center gap-3">
                             <div className="bg-white/10 p-2 rounded-xl"><Building2 className="h-5 w-5 text-yellow-400" /></div>
                             <div>
@@ -1453,9 +1724,12 @@ export default function DashboardAdmin() {
                             {vistaActual.ranking.map((item, idx) => {
                               const esRenault = item.marca === 'RENAULT';
                               return (
-                                <div
+                                <button
                                   key={item.marca}
-                                  className={`rounded-xl p-2.5 ${esRenault ? 'bg-yellow-500/10 border border-yellow-500/40 shadow-[0_0_20px_rgba(255,204,0,0.25)]' : ''}`}
+                                  type="button"
+                                  onClick={() => setMarcaSeleccionada(item.marca)}
+                                  title={`Ver comparativa de ${item.marca} vs. Renault`}
+                                  className={`w-full text-left rounded-xl p-2.5 transition-colors hover:bg-white/10 ${esRenault ? 'bg-yellow-500/10 border border-yellow-500/40 shadow-[0_0_20px_rgba(255,204,0,0.25)]' : ''}`}
                                 >
                                   <div className="flex items-center justify-between mb-1.5 gap-2">
                                     <span className={`text-sm font-black flex items-center gap-1.5 ${esRenault ? 'text-yellow-400' : 'text-gray-200'}`}>
@@ -1474,7 +1748,7 @@ export default function DashboardAdmin() {
                                       className={`h-full rounded-full ${esRenault ? 'bg-yellow-400' : 'bg-white/30'}`}
                                     />
                                   </div>
-                                </div>
+                                </button>
                               );
                             })}
                           </div>
@@ -1483,6 +1757,7 @@ export default function DashboardAdmin() {
                     </>
                   )}
                 </motion.div>
+                )}
               </AnimatePresence>
             </div>
 
