@@ -338,16 +338,18 @@ export default function DashboardAdmin() {
   const indiceConversion = carteraData.length > 0 ? (adjudicadosData.length / carteraData.length) * 100 : 0;
 
   // Si hay una sincronización CCA exitosa cacheada, pisa el total de suscripciones,
-  // su variación y la cuota de Renault del ranking; el resto del ranking (las
-  // demás marcas) sigue viniendo del dato de referencia, porque fetchCCAStats()
-  // sólo trae esos 3 valores puntuales.
+  // su variación y la cuota de Renault del ranking (pestaña "Suscripciones" de CCA);
+  // el resto del ranking (las demás marcas) sigue viniendo del dato de referencia,
+  // porque el proxy no trae el detalle de todas las marcas, sólo el de Renault.
   const estadisticasMercado = ccaStats
     ? {
         ...ESTADISTICAS_MERCADO_DEFAULT,
-        totalSuscripciones: ccaStats.totalSuscripciones,
-        variacionTotalSuscripciones: ccaStats.variacionMensual,
+        totalSuscripciones: ccaStats.suscripciones.total,
+        variacionTotalSuscripciones: ccaStats.suscripciones.variacionMensual,
         rankingMarcas: ESTADISTICAS_MERCADO_DEFAULT.rankingMarcas.map((m) =>
-          m.marca === 'Renault' ? { ...m, cuotaMercado: ccaStats.cuotaRenault } : m
+          m.marca === 'Renault' && ccaStats.suscripciones.cuotaRenault != null
+            ? { ...m, cuotaMercado: ccaStats.suscripciones.cuotaRenault }
+            : m
         ),
       }
     : ESTADISTICAS_MERCADO_DEFAULT;
@@ -434,6 +436,18 @@ export default function DashboardAdmin() {
       <p className="text-3xl font-black">{valor}</p>
       {subtexto && <p className={`text-xs font-medium mt-1 ${destacada ? 'text-gray-400' : 'text-gray-500'}`}>{subtexto}</p>}
     </motion.div>
+  );
+
+  // Estado vacío para las secciones de CCA que sólo existen con datos en vivo
+  // (Facturación, Conversión, Mercado Total): a diferencia de Suscripciones, no hay
+  // un dato de referencia inventado para éstas, así que antes de sincronizar se
+  // muestra este aviso en vez de un número fabricado.
+  const PanelPendienteSync = ({ etiqueta }: { etiqueta: string }) => (
+    <div className="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-6 text-center">
+      <p className="text-sm font-bold text-gray-500">
+        Sincronizá con CCA (botón de arriba) para ver los datos de {etiqueta}.
+      </p>
+    </div>
   );
 
   // Banner reutilizable de resultado de carga con alerta de duplicados
@@ -1214,7 +1228,14 @@ export default function DashboardAdmin() {
 
               {/* Barra comparativa de Participación por Marca */}
               <div className="bg-white rounded-3xl border border-gray-200 shadow-xl p-6">
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-4">Participación por Marca</h3>
+                <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
+                  <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide">Participación por Marca (Suscripciones)</h3>
+                  {ccaStats && (
+                    <span className="text-xs font-bold text-gray-500 flex items-center gap-1.5">
+                      <Crown className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" /> Marca líder: {ccaStats.suscripciones.marcaLider}
+                    </span>
+                  )}
+                </div>
                 <div className="space-y-4">
                   {rankingOrdenado.map((marca, idx) => {
                     const esRenault = marca.marca === 'Renault';
@@ -1247,6 +1268,119 @@ export default function DashboardAdmin() {
                     );
                   })}
                 </div>
+              </div>
+
+              {/* === FACTURACIÓN (pestaña "FC" de CCA) === */}
+              <div className="mt-8">
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Facturación (FC)</h3>
+                {ccaStats ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <TarjetaMetrica
+                      icono={BarChart3}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Total Facturación"
+                      valor={ccaStats.facturacion.total.toLocaleString('es-AR')}
+                      tendencia={ccaStats.facturacion.variacionMensual}
+                      subtexto="vs. período anterior"
+                    />
+                    <TarjetaMetrica
+                      icono={Crown}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Marca Líder"
+                      valor={ccaStats.facturacion.marcaLider}
+                      subtexto="En unidades facturadas"
+                    />
+                    <TarjetaMetrica
+                      icono={BarChart3}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Promedio Mensual"
+                      valor={ccaStats.facturacion.promedioMensual != null ? ccaStats.facturacion.promedioMensual.toLocaleString('es-AR') : '-'}
+                      subtexto="Unidades por mes"
+                    />
+                    <TarjetaMetrica
+                      icono={Crown}
+                      colorIcono="text-yellow-400"
+                      colorFondo="bg-white/10"
+                      titulo="Renault — Facturación"
+                      valor={ccaStats.facturacion.cuotaRenault != null ? `${ccaStats.facturacion.cuotaRenault.toFixed(1)}%` : '-'}
+                      subtexto={ccaStats.facturacion.renault != null ? `${ccaStats.facturacion.renault.toLocaleString('es-AR')} unidades` : undefined}
+                      destacada
+                    />
+                  </div>
+                ) : (
+                  <PanelPendienteSync etiqueta="Facturación (FC)" />
+                )}
+              </div>
+
+              {/* === CONVERSIÓN (pestaña "Conversión" de CCA) === */}
+              <div className="mt-8">
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Conversión</h3>
+                {ccaStats ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <TarjetaMetrica
+                      icono={Percent}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Conversión Total"
+                      valor={`${ccaStats.conversion.total.toFixed(1)}%`}
+                      tendencia={ccaStats.conversion.variacionMensual}
+                      subtexto="vs. período anterior"
+                    />
+                    <TarjetaMetrica
+                      icono={Crown}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Marca Líder"
+                      valor={ccaStats.conversion.marcaLider}
+                      subtexto="Mayor % de conversión"
+                    />
+                    <TarjetaMetrica
+                      icono={Crown}
+                      colorIcono="text-yellow-400"
+                      colorFondo="bg-white/10"
+                      titulo="Renault — Conversión"
+                      valor={ccaStats.conversion.renault != null ? `${ccaStats.conversion.renault.toFixed(1)}%` : '-'}
+                      destacada
+                    />
+                  </div>
+                ) : (
+                  <PanelPendienteSync etiqueta="Conversión" />
+                )}
+              </div>
+
+              {/* === MERCADO TOTAL (pestaña "Mercado Total" de CCA) === */}
+              <div className="mt-8">
+                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Mercado Total</h3>
+                {ccaStats ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    <TarjetaMetrica
+                      icono={Users}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Suscripciones"
+                      valor={ccaStats.mercadoTotal.suscripciones.toLocaleString('es-AR')}
+                    />
+                    <TarjetaMetrica
+                      icono={BarChart3}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Facturación"
+                      valor={ccaStats.mercadoTotal.facturacion.toLocaleString('es-AR')}
+                    />
+                    <TarjetaMetrica
+                      icono={Percent}
+                      colorIcono="text-gray-700"
+                      colorFondo="bg-gray-100"
+                      titulo="Conversión"
+                      valor={`${ccaStats.mercadoTotal.conversionPct.toFixed(1)}%`}
+                    />
+                  </div>
+                ) : (
+                  <PanelPendienteSync etiqueta="Mercado Total" />
+                )}
               </div>
             </div>
 

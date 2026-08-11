@@ -4,15 +4,30 @@
 // CORS para otros orígenes, y aunque las enviara, esa página renderiza sus cifras
 // vía JavaScript del lado del cliente (el HTML crudo no las contiene). Por eso el
 // scraping real vive en el servidor: api/cca-stats.ts abre la página con un Chromium
-// headless (Puppeteer), espera a que termine de pintar los números y los lee del DOM
-// ya renderizado. Esta función sólo llama a ese endpoint propio (mismo origen, sin
-// problema de CORS) y nunca simula un éxito: cualquier falla del proxy o del fetch
-// devuelve un motivo específico, y el llamador decide si mostrar el último cacheado.
+// headless (Puppeteer), recorre sus 4 sub-pestañas (Suscripciones, FC, Conversión,
+// Mercado Total) y lee los números ya renderizados. Esta función sólo llama a ese
+// endpoint propio (mismo origen, sin problema de CORS) y nunca simula un éxito:
+// cualquier falla del proxy o del fetch devuelve un motivo específico, y el llamador
+// decide si mostrar el último dato cacheado.
+
+export interface CcaMetrica {
+  total: number; // unidad según la pestaña: cantidad para Suscripciones/FC, % para Conversión
+  marcaLider: string;
+  variacionMensual: number; // %
+  promedioMensual: number | null; // no aplica a Conversión
+  renault: number | null; // valor de Renault en esta métrica (cantidad o %, según la pestaña)
+  cuotaRenault?: number | null; // % de Renault sobre el total (sólo Suscripciones/FC; Conversión ya es %)
+}
 
 export interface CcaStats {
-  totalSuscripciones: number;
-  variacionMensual: number; // %
-  cuotaRenault: number; // %
+  suscripciones: CcaMetrica;
+  facturacion: CcaMetrica; // pestaña "FC" de CCA
+  conversion: CcaMetrica; // total y renault ya vienen expresados en %
+  mercadoTotal: {
+    suscripciones: number;
+    facturacion: number;
+    conversionPct: number;
+  };
   fechaSincronizacion: string; // ISO
 }
 
@@ -24,9 +39,9 @@ export interface ResultadoSincronizacionCCA {
 
 const CCA_PROXY_ENDPOINT = '/api/cca-stats';
 const CCA_CACHE_KEY = 'cca_stats_cache';
-// El proxy renderiza una página real con Chromium headless (más lento que un fetch
-// simple): le damos más margen que a un pedido HTTP común.
-const TIMEOUT_MS = 25000;
+// El proxy renderiza una página real con Chromium headless y recorre 4 pestañas
+// (más lento que un fetch simple): le damos más margen que a un pedido HTTP común.
+const TIMEOUT_MS = 28000;
 
 export const cargarCacheCCA = (): CcaStats | null => {
   try {
