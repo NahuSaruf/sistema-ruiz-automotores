@@ -43,10 +43,33 @@ const CCA_CACHE_KEY = 'cca_stats_cache';
 // (más lento que un fetch simple): le damos más margen que a un pedido HTTP común.
 const TIMEOUT_MS = 28000;
 
+// Valida que lo cacheado tenga la forma actual de CcaStats. Necesario porque versiones
+// anteriores de esta app guardaban un formato plano distinto (totalSuscripciones,
+// variacionMensual, cuotaRenault) bajo la misma clave: sin este chequeo, un usuario con
+// esa caché vieja en el navegador rompe el panel entero al intentar leer
+// datos.suscripciones.total sobre un objeto que no lo tiene.
+const esCcaStatsValido = (valor: unknown): valor is CcaStats => {
+  if (!valor || typeof valor !== 'object') return false;
+  const v = valor as Record<string, unknown>;
+  return (
+    typeof v.suscripciones === 'object' && v.suscripciones !== null &&
+    typeof v.facturacion === 'object' && v.facturacion !== null &&
+    typeof v.conversion === 'object' && v.conversion !== null &&
+    typeof v.mercadoTotal === 'object' && v.mercadoTotal !== null
+  );
+};
+
 export const cargarCacheCCA = (): CcaStats | null => {
   try {
     const guardado = localStorage.getItem(CCA_CACHE_KEY);
-    return guardado ? JSON.parse(guardado) : null;
+    if (!guardado) return null;
+    const parseado = JSON.parse(guardado);
+    if (!esCcaStatsValido(parseado)) {
+      // Formato viejo/incompatible: se descarta en vez de romper el render.
+      localStorage.removeItem(CCA_CACHE_KEY);
+      return null;
+    }
+    return parseado;
   } catch {
     return null;
   }
