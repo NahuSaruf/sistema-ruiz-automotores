@@ -65,6 +65,32 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       return;
     }
 
+    // Modo debug de pestañas (?debug=tabs): la página tiene sub-pestañas (Suscripciones,
+    // FC, Conversión, Mercado Total) que cambian el contenido sin recargar. Este modo
+    // hace clic en cada una y devuelve el texto resultante, para poder diseñar la
+    // extracción real de cada pestaña con contenido verdadero en vez de adivinar.
+    if (req.query.debug === 'tabs') {
+      const nombresPestanas = ['Suscripciones', 'FC', 'Conversión', 'Mercado Total'];
+      const resultado: Record<string, string> = {};
+      for (const nombre of nombresPestanas) {
+        const clickeado = await page.evaluate((texto) => {
+          const candidatos = Array.from(document.querySelectorAll('button, a, [role="tab"], li, div, span'));
+          const el = candidatos.find((e) => e.textContent?.trim() === texto);
+          if (el instanceof HTMLElement) {
+            el.click();
+            return true;
+          }
+          return false;
+        }, nombre);
+        await esperar(1500);
+        resultado[nombre] = clickeado
+          ? await page.evaluate(() => document.body.innerText)
+          : '(no se encontró un elemento clickeable con ese texto)';
+      }
+      res.status(200).json({ ok: true, debug: 'tabs', resultado });
+      return;
+    }
+
     const totalMatch = texto.match(REGEX_TOTAL);
     const variacionMatch = texto.match(REGEX_VARIACION);
     const renaultMatch = texto.match(REGEX_RENAULT);
