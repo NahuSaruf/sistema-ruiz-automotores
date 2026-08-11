@@ -29,25 +29,49 @@ const numeroDesdeTexto = (texto: string): number =>
 
 const esperar = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
+interface ItemRanking {
+  marca: string;
+  valor: number;
+}
+
 interface MetricaTab {
   total: number;
   marcaLider: string;
   variacionMensual: number;
   promedioMensual: number | null;
   renault: number | null;
+  ranking: ItemRanking[];
 }
+
+// Marcas que aparecen listadas en cca.com.ar/estadisticas/ (relevado el 11/08/2026).
+// Se usa una lista cerrada en vez de un regex genérico porque el ranking no tiene
+// selectores propios por fila: es texto plano "MARCA\n<número>" repetido.
+const MARCAS_CONOCIDAS = [
+  'FIAT', 'TOYOTA', 'VOLKSWAGEN', 'PEUGEOT', 'RENAULT', 'CHEVROLET',
+  'CITROEN', 'FORD', 'NISSAN', 'JEEP', 'RAM', 'LEAPMOTOR',
+];
+
+const extraerRanking = (texto: string): ItemRanking[] => {
+  const items: ItemRanking[] = [];
+  for (const marca of MARCAS_CONOCIDAS) {
+    const m = texto.match(new RegExp(`\\b${marca}\\s*\\n?\\s*([\\d.,]+)\\s*%?`, 'i'));
+    if (m) items.push({ marca, valor: numeroDesdeTexto(m[1]) });
+  }
+  return items.sort((a, b) => b.valor - a.valor);
+};
 
 // Patrones verificados contra el texto real renderizado por cca.com.ar (relevado con
 // el modo debug de este mismo endpoint el 11/08/2026). Cada pestaña comparte el mismo
 // formato: "TOTAL <ETIQUETA>\n<número>[%]", "MARCA LÍDER\n<MARCA>", "VARIACIÓN MENSUAL\n
 // (↑|↓) <número>%", "PROMEDIO MENSUAL\n<número>" (no aplica a Conversión) y, dentro del
-// ranking por marca, "RENAULT\n<número>[%]".
+// ranking por marca, "<MARCA>\n<número>[%]" repetido por cada marca listada.
 const extraerMetricaTab = (texto: string, etiquetaTotal: string): MetricaTab | null => {
   const totalMatch = texto.match(new RegExp(`${etiquetaTotal}\\s*\\n?\\s*([\\d.,]+)\\s*%?`, 'i'));
   const marcaLiderMatch = texto.match(/MARCA L[IÍ]DER\s*\n?\s*([A-ZÁÉÍÓÚÑ]+)\s*\n/i);
   const variacionMatch = texto.match(/VARIACI[OÓ]N MENSUAL[\s\S]{0,20}?(↑|↓)\s*([\d.,]+)\s*%/i);
   const promedioMatch = texto.match(/PROMEDIO MENSUAL\s*\n?\s*([\d.,]+)/i);
-  const renaultMatch = texto.match(/RENAULT\s*\n?\s*([\d.,]+)\s*%?/i);
+  const ranking = extraerRanking(texto);
+  const renaultItem = ranking.find((r) => r.marca === 'RENAULT');
 
   if (!totalMatch || !marcaLiderMatch || !variacionMatch) return null;
 
@@ -58,7 +82,8 @@ const extraerMetricaTab = (texto: string, etiquetaTotal: string): MetricaTab | n
     marcaLider: marcaLiderMatch[1].trim(),
     variacionMensual: signoVariacion * numeroDesdeTexto(variacionMatch[2]),
     promedioMensual: promedioMatch ? numeroDesdeTexto(promedioMatch[1]) : null,
-    renault: renaultMatch ? numeroDesdeTexto(renaultMatch[1]) : null,
+    renault: renaultItem ? renaultItem.valor : null,
+    ranking,
   };
 };
 
@@ -153,6 +178,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           promedioMensual: datosSuscripciones.promedioMensual,
           renault: datosSuscripciones.renault,
           cuotaRenault: cuotaRenault(datosSuscripciones),
+          ranking: datosSuscripciones.ranking,
         },
         facturacion: {
           total: datosFC.total,
@@ -161,13 +187,16 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
           promedioMensual: datosFC.promedioMensual,
           renault: datosFC.renault,
           cuotaRenault: cuotaRenault(datosFC),
+          ranking: datosFC.ranking,
         },
         conversion: {
-          // El total y el valor de Renault de esta pestaña ya vienen expresados en %.
+          // El total, el valor de Renault y el ranking de esta pestaña ya vienen
+          // expresados en %.
           total: datosConversion.total,
           marcaLider: datosConversion.marcaLider,
           variacionMensual: datosConversion.variacionMensual,
           renault: datosConversion.renault,
+          ranking: datosConversion.ranking,
         },
         mercadoTotal: {
           suscripciones: datosSuscripciones.total,

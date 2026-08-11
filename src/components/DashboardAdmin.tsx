@@ -5,6 +5,7 @@ import {
   Search, Trophy, RefreshCw, Target, X, ExternalLink, Save, CheckCircle2, Files,
   Trash2, AlertTriangle, Award, MessageCircle, Eye, MapPin, Cloud,
   TrendingUp, TrendingDown, Percent, BarChart3, Building2, Crown,
+  Receipt, Layers, LineChart,
 } from 'lucide-react';
 import {
   procesarArchivoExcel, ClientePlan,
@@ -35,6 +36,14 @@ const fusionarPorGrupoOrden = <T extends { grupoOrden: string }>(local: T[], nub
   local.forEach((item) => { if (item.grupoOrden) mapa.set(item.grupoOrden, item); });
   nube.forEach((item) => { if (item.grupoOrden) mapa.set(item.grupoOrden, item); });
   return Array.from(mapa.values());
+};
+
+// Etiquetas legibles por vista, usadas en el selector y en las tarjetas KPI de
+// Mercado Nacional.
+const ETIQUETAS_VISTA: Record<'suscripciones' | 'facturacion' | 'conversion', string> = {
+  suscripciones: 'Suscripciones',
+  facturacion: 'Facturación',
+  conversion: 'Conversión',
 };
 
 // Ficha unificada de un adjudicado: cruza el reporte de Adjudicados (fecha, modalidad,
@@ -337,25 +346,43 @@ export default function DashboardAdmin() {
   // Índice de conversión: proporción de la cartera cargada que efectivamente se adjudicó.
   const indiceConversion = carteraData.length > 0 ? (adjudicadosData.length / carteraData.length) * 100 : 0;
 
-  // Si hay una sincronización CCA exitosa cacheada, pisa el total de suscripciones,
-  // su variación y la cuota de Renault del ranking (pestaña "Suscripciones" de CCA);
-  // el resto del ranking (las demás marcas) sigue viniendo del dato de referencia,
-  // porque el proxy no trae el detalle de todas las marcas, sólo el de Renault.
-  const estadisticasMercado = ccaStats
+  // Vista activa dentro del selector de 4 pestañas de Mercado Nacional.
+  const [vistaMercado, setVistaMercado] = useState<'suscripciones' | 'facturacion' | 'conversion' | 'mercadoTotal'>('suscripciones');
+
+  // Trae la vista pedida (Suscripciones/FC/Conversión) desde la sincronización en
+  // vivo si existe; si no, cae al snapshot de referencia real relevado manualmente
+  // (ver comentario en estadisticasMercado.ts). Misma forma en ambos casos.
+  const obtenerVistaMetrica = (clave: 'suscripciones' | 'facturacion' | 'conversion') => {
+    if (ccaStats) {
+      const m = ccaStats[clave];
+      return {
+        total: m.total,
+        marcaLider: m.marcaLider,
+        variacionMensual: m.variacionMensual,
+        promedioMensual: m.promedioMensual,
+        ranking: m.ranking,
+      };
+    }
+    return ESTADISTICAS_MERCADO_DEFAULT[clave];
+  };
+
+  const vistaMercadoTotalActual = ccaStats
     ? {
-        ...ESTADISTICAS_MERCADO_DEFAULT,
-        totalSuscripciones: ccaStats.suscripciones.total,
-        variacionTotalSuscripciones: ccaStats.suscripciones.variacionMensual,
-        rankingMarcas: ESTADISTICAS_MERCADO_DEFAULT.rankingMarcas.map((m) =>
-          m.marca === 'Renault' && ccaStats.suscripciones.cuotaRenault != null
-            ? { ...m, cuotaMercado: ccaStats.suscripciones.cuotaRenault }
-            : m
-        ),
+        suscripciones: ccaStats.mercadoTotal.suscripciones,
+        facturacion: ccaStats.mercadoTotal.facturacion,
+        conversionPromedio: ccaStats.mercadoTotal.conversionPct,
+        // La evolución mes a mes no forma parte de lo que sincroniza el proxy hoy;
+        // se usa siempre el dato de referencia cargado a mano (ver estadisticasMercado.ts).
+        evolucionConversion: ESTADISTICAS_MERCADO_DEFAULT.mercadoTotal.evolucionConversion,
       }
-    : ESTADISTICAS_MERCADO_DEFAULT;
-  const { posicion: posicionRenault, datos: datosRenault } = posicionMarcaPropia(estadisticasMercado);
-  const rankingOrdenado = [...estadisticasMercado.rankingMarcas].sort((a, b) => b.cuotaMercado - a.cuotaMercado);
-  const cuotaMercadoMaxima = Math.max(...rankingOrdenado.map((m) => m.cuotaMercado));
+    : ESTADISTICAS_MERCADO_DEFAULT.mercadoTotal;
+
+  const vistaActual =
+    vistaMercado === 'mercadoTotal' ? null : obtenerVistaMetrica(vistaMercado);
+  const { posicion: posicionRenault, datos: datosRenault } = vistaActual
+    ? posicionMarcaPropia(vistaActual.ranking)
+    : { posicion: 0, datos: undefined };
+  const valorMaximoRanking = vistaActual ? Math.max(...vistaActual.ranking.map((m) => m.valor), 1) : 1;
 
   // Ficha completa por adjudicado: cruza el reporte de Adjudicados con la Cartera
   // General (por Grupo y Orden) para completar DNI y Teléfono, y traduce el modelo
@@ -442,13 +469,100 @@ export default function DashboardAdmin() {
   // (Facturación, Conversión, Mercado Total): a diferencia de Suscripciones, no hay
   // un dato de referencia inventado para éstas, así que antes de sincronizar se
   // muestra este aviso en vez de un número fabricado.
-  const PanelPendienteSync = ({ etiqueta }: { etiqueta: string }) => (
-    <div className="bg-gray-50 border border-dashed border-gray-300 rounded-2xl p-6 text-center">
-      <p className="text-sm font-bold text-gray-500">
-        Sincronizá con CCA (botón de arriba) para ver los datos de {etiqueta}.
-      </p>
-    </div>
+  // Variante oscura de IndicadorTendencia, para usar sobre el panel #0B0F19 de
+  // Mercado Nacional (los tonos green-600/red-600 de la variante clara pierden
+  // contraste ahí).
+  const IndicadorTendenciaOscura = ({ valor }: { valor: number }) => {
+    const esPositivo = valor >= 0;
+    const Icono = esPositivo ? TrendingUp : TrendingDown;
+    return (
+      <span className={`inline-flex items-center gap-1 text-xs font-black ${esPositivo ? 'text-green-400' : 'text-red-400'}`}>
+        <Icono className="h-3.5 w-3.5" /> {esPositivo ? '+' : ''}{valor.toFixed(1)}%
+      </span>
+    );
+  };
+
+  // Tarjeta KPI del panel oscuro de Mercado Nacional. Renault (destacada) se resalta
+  // con acento dorado (#FFCC00 vía yellow-400/500) en vez del fondo gris-900 que usa
+  // la variante clara TarjetaMetrica.
+  const TarjetaKPIOscura = ({
+    icono: Icono, titulo, valor, tendencia, subtexto, destacada,
+  }: {
+    icono: typeof Users;
+    titulo: string;
+    valor: string;
+    tendencia?: number;
+    subtexto?: string;
+    destacada?: boolean;
+  }) => (
+    <motion.div
+      whileHover={{ y: -4 }}
+      className={`p-5 rounded-2xl border relative overflow-hidden ${
+        destacada ? 'bg-yellow-500/10 border-yellow-500/40 shadow-[0_0_24px_rgba(255,204,0,0.15)]' : 'bg-white/5 border-white/10'
+      }`}
+    >
+      <div className="flex justify-between items-start mb-3">
+        <div className={`p-2 rounded-xl ${destacada ? 'bg-yellow-500/20' : 'bg-white/10'}`}>
+          <Icono className={`h-5 w-5 ${destacada ? 'text-yellow-400' : 'text-gray-300'}`} />
+        </div>
+        {tendencia !== undefined && <IndicadorTendenciaOscura valor={tendencia} />}
+      </div>
+      <h3 className="text-[11px] font-bold uppercase tracking-wider text-gray-400 mb-1">{titulo}</h3>
+      <p className={`text-2xl font-black ${destacada ? 'text-yellow-400' : 'text-white'}`}>{valor}</p>
+      {subtexto && <p className="text-xs font-medium text-gray-500 mt-1">{subtexto}</p>}
+    </motion.div>
   );
+
+  // Gráfico de línea en SVG puro (sin librerías nuevas) para series cortas de puntos
+  // mensuales. Pensado para el tema oscuro: fondo transparente, línea/relleno dorado
+  // por defecto (acento de Renault / Plan Rombo), etiquetas claras.
+  const GraficoLineasSVG = ({
+    puntos, colorLinea = '#FFCC00', sufijo = '%',
+  }: {
+    puntos: { etiqueta: string; valor: number }[];
+    colorLinea?: string;
+    sufijo?: string;
+  }) => {
+    const ancho = 560;
+    const alto = 190;
+    const margen = { top: 26, right: 16, bottom: 28, left: 16 };
+    const valores = puntos.map((p) => p.valor);
+    const max = Math.max(...valores);
+    const min = Math.min(...valores);
+    const rango = max - min || 1;
+    const pasoX = (ancho - margen.left - margen.right) / Math.max(puntos.length - 1, 1);
+
+    const coords = puntos.map((p, i) => ({
+      x: margen.left + i * pasoX,
+      y: margen.top + (1 - (p.valor - min) / rango) * (alto - margen.top - margen.bottom),
+      ...p,
+    }));
+
+    const lineaPath = coords.map((c, i) => `${i === 0 ? 'M' : 'L'} ${c.x.toFixed(1)} ${c.y.toFixed(1)}`).join(' ');
+    const base = alto - margen.bottom;
+    const areaPath = `${lineaPath} L ${coords[coords.length - 1].x.toFixed(1)} ${base} L ${coords[0].x.toFixed(1)} ${base} Z`;
+    const gradientId = `gradienteEvolucion-${sufijo === '%' ? 'pct' : 'num'}`;
+
+    return (
+      <svg viewBox={`0 0 ${ancho} ${alto}`} className="w-full h-auto" role="img" aria-label="Gráfico de evolución mensual">
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor={colorLinea} stopOpacity="0.35" />
+            <stop offset="100%" stopColor={colorLinea} stopOpacity="0" />
+          </linearGradient>
+        </defs>
+        <path d={areaPath} fill={`url(#${gradientId})`} stroke="none" />
+        <path d={lineaPath} fill="none" stroke={colorLinea} strokeWidth="2.5" strokeLinejoin="round" strokeLinecap="round" />
+        {coords.map((c) => (
+          <g key={c.etiqueta}>
+            <circle cx={c.x} cy={c.y} r="3.5" fill={colorLinea} />
+            <text x={c.x} y={alto - 8} textAnchor="middle" fontSize="10" fill="#9CA3AF" fontWeight={700}>{c.etiqueta}</text>
+            <text x={c.x} y={c.y - 10} textAnchor="middle" fontSize="10" fill="#F3F4F6" fontWeight={800}>{c.valor.toFixed(1)}{sufijo}</text>
+          </g>
+        ))}
+      </svg>
+    );
+  };
 
   // Banner reutilizable de resultado de carga con alerta de duplicados
   const BannerAlerta = ({ alerta }: { alerta: AlertaCarga }) => {
@@ -1153,7 +1267,7 @@ export default function DashboardAdmin() {
                   <BarChart3 className="h-5 w-5 text-gray-700" /> Métrica de Mercado Nacional
                 </h2>
                 <span className="text-[11px] font-bold text-gray-400 uppercase tracking-wide">
-                  {estadisticasMercado.periodoActual} vs. {estadisticasMercado.periodoAnterior}
+                  {ESTADISTICAS_MERCADO_DEFAULT.periodo}
                 </span>
               </div>
               <p className="text-gray-500 text-sm font-medium mb-4">Planes de ahorro 0km a nivel nacional (Fuente: CCA / PlaneroDeLey).</p>
@@ -1166,7 +1280,7 @@ export default function DashboardAdmin() {
                     </span>
                   ) : (
                     <span className="text-yellow-700 flex items-center gap-1.5">
-                      <AlertTriangle className="h-4 w-4" /> Mostrando datos de referencia — todavía no se sincronizó en vivo con CCA
+                      <AlertTriangle className="h-4 w-4" /> Mostrando el snapshot de referencia (relevado {ESTADISTICAS_MERCADO_DEFAULT.fechaActualizacion}) — todavía no se sincronizó en vivo con CCA
                     </span>
                   )}
                 </div>
@@ -1195,193 +1309,181 @@ export default function DashboardAdmin() {
                 </motion.div>
               )}
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
-                <TarjetaMetrica
-                  icono={Users}
-                  colorIcono="text-gray-700"
-                  colorFondo="bg-gray-100"
-                  titulo="Total Suscripciones Mercado 0km"
-                  valor={estadisticasMercado.totalSuscripciones.toLocaleString('es-AR')}
-                  tendencia={estadisticasMercado.variacionTotalSuscripciones}
-                  subtexto="vs. período anterior"
-                />
-                <TarjetaMetrica
-                  icono={BarChart3}
-                  colorIcono="text-gray-700"
-                  colorFondo="bg-gray-100"
-                  titulo="Promedio Mensual (Evolución 2026)"
-                  valor={estadisticasMercado.promedioMensual.toLocaleString('es-AR')}
-                  tendencia={estadisticasMercado.variacionPromedioMensual}
-                  subtexto="Suscripciones promedio por mes"
-                />
-                <TarjetaMetrica
-                  icono={Crown}
-                  colorIcono="text-yellow-400"
-                  colorFondo="bg-white/10"
-                  titulo="Renault — Plan Rombo"
-                  valor={datosRenault ? `${datosRenault.cuotaMercado.toFixed(1)}%` : '-'}
-                  tendencia={datosRenault?.variacion}
-                  subtexto={`Puesto ${posicionRenault}° del ranking por marca`}
-                  destacada
-                />
+              {/* Selector de las 4 vistas de CCA */}
+              <div className="flex flex-wrap gap-2 mb-4">
+                {(
+                  [
+                    { clave: 'suscripciones', etiqueta: 'Suscripciones', icono: Users },
+                    { clave: 'facturacion', etiqueta: 'FC (Facturación)', icono: Receipt },
+                    { clave: 'conversion', etiqueta: 'Conversión', icono: Percent },
+                    { clave: 'mercadoTotal', etiqueta: 'Mercado Total', icono: Layers },
+                  ] as const
+                ).map(({ clave, etiqueta, icono: Icono }) => (
+                  <motion.button
+                    key={clave}
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={() => setVistaMercado(clave)}
+                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-black text-xs uppercase tracking-wide transition-colors ${
+                      vistaMercado === clave
+                        ? 'bg-yellow-500 text-gray-900 shadow-md'
+                        : 'bg-[#0B0F19] text-gray-300 hover:text-white border border-white/10'
+                    }`}
+                  >
+                    <Icono className="h-4 w-4" /> {etiqueta}
+                  </motion.button>
+                ))}
               </div>
 
-              {/* Barra comparativa de Participación por Marca */}
-              <div className="bg-white rounded-3xl border border-gray-200 shadow-xl p-6">
-                <div className="flex items-center justify-between flex-wrap gap-2 mb-4">
-                  <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide">Participación por Marca (Suscripciones)</h3>
-                  {ccaStats && (
-                    <span className="text-xs font-bold text-gray-500 flex items-center gap-1.5">
-                      <Crown className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" /> Marca líder: {ccaStats.suscripciones.marcaLider}
-                    </span>
-                  )}
-                </div>
-                <div className="space-y-4">
-                  {rankingOrdenado.map((marca, idx) => {
-                    const esRenault = marca.marca === 'Renault';
-                    return (
-                      <div key={marca.marca}>
-                        <div className="flex items-center justify-between mb-1.5 gap-2">
-                          <span className={`text-sm font-black flex items-center gap-1.5 ${esRenault ? 'text-gray-900' : 'text-gray-600'}`}>
-                            #{idx + 1} {marca.marca}
-                            {esRenault && <Crown className="h-3.5 w-3.5 text-yellow-500 fill-yellow-500" />}
-                          </span>
-                          <div className="flex items-center gap-3">
-                            <span className="text-xs text-gray-400 font-medium hidden sm:inline">
-                              {marca.suscripciones.toLocaleString('es-AR')} susc.
-                            </span>
-                            <IndicadorTendencia valor={marca.variacion} />
-                            <span className={`text-sm font-black w-14 text-right ${esRenault ? 'text-gray-900' : 'text-gray-600'}`}>
-                              {marca.cuotaMercado.toFixed(1)}%
-                            </span>
+              {/* Panel oscuro con la vista activa */}
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={vistaMercado}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.25, ease: 'easeOut' }}
+                  className="bg-[#0B0F19] rounded-3xl border border-white/10 shadow-2xl p-6"
+                >
+                  {vistaMercado === 'mercadoTotal' ? (
+                    <>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+                        <TarjetaKPIOscura icono={Users} titulo="Total Mercado (Suscripciones)" valor={vistaMercadoTotalActual.suscripciones.toLocaleString('es-AR')} />
+                        <TarjetaKPIOscura icono={Receipt} titulo="Total Facturación" valor={vistaMercadoTotalActual.facturacion.toLocaleString('es-AR')} />
+                        <TarjetaKPIOscura icono={Percent} titulo="Conversión Promedio" valor={`${vistaMercadoTotalActual.conversionPromedio.toFixed(2)}%`} destacada />
+                      </div>
+                      <div className="bg-white/5 rounded-2xl border border-white/10 p-5">
+                        <h3 className="text-xs font-black uppercase tracking-wide text-gray-400 mb-1 flex items-center gap-2">
+                          <LineChart className="h-4 w-4 text-yellow-400" /> Tendencia Mensual de Conversión
+                        </h3>
+                        <p className="text-[11px] text-gray-500 font-medium mb-3">
+                          {ESTADISTICAS_MERCADO_DEFAULT.periodo} · dato cargado a mano (no forma parte de la sincronización automática todavía).
+                        </p>
+                        <GraficoLineasSVG
+                          puntos={vistaMercadoTotalActual.evolucionConversion.map((p) => ({ etiqueta: p.mes, valor: p.valor }))}
+                          colorLinea="#FFCC00"
+                          sufijo="%"
+                        />
+                      </div>
+                    </>
+                  ) : vistaActual && (
+                    <>
+                      <div className={`grid grid-cols-1 sm:grid-cols-2 ${vistaActual.promedioMensual != null ? 'lg:grid-cols-4' : 'lg:grid-cols-3'} gap-4 mb-6`}>
+                        <TarjetaKPIOscura
+                          icono={vistaMercado === 'conversion' ? Percent : Users}
+                          titulo={`Total ${ETIQUETAS_VISTA[vistaMercado]}`}
+                          valor={vistaMercado === 'conversion' ? `${vistaActual.total.toFixed(2)}%` : vistaActual.total.toLocaleString('es-AR')}
+                          tendencia={vistaActual.variacionMensual}
+                          subtexto="vs. período anterior"
+                        />
+                        <TarjetaKPIOscura icono={Crown} titulo="Marca Líder" valor={vistaActual.marcaLider} />
+                        {vistaActual.promedioMensual != null && (
+                          <TarjetaKPIOscura icono={BarChart3} titulo="Promedio Mensual" valor={vistaActual.promedioMensual.toLocaleString('es-AR')} />
+                        )}
+                        <TarjetaKPIOscura
+                          icono={Crown}
+                          titulo="Renault"
+                          valor={datosRenault ? (vistaMercado === 'conversion' ? `${datosRenault.valor.toFixed(2)}%` : datosRenault.valor.toLocaleString('es-AR')) : '-'}
+                          subtexto={posicionRenault ? `Puesto ${posicionRenault}° del ranking` : undefined}
+                          destacada
+                        />
+                      </div>
+
+                      {vistaMercado === 'suscripciones' && (
+                        <div className="bg-white/5 rounded-2xl border border-white/10 p-5 mb-6">
+                          <h3 className="text-xs font-black uppercase tracking-wide text-gray-400 mb-1 flex items-center gap-2">
+                            <LineChart className="h-4 w-4 text-yellow-400" /> Resumen del Período ({ESTADISTICAS_MERCADO_DEFAULT.periodo})
+                          </h3>
+                          <p className="text-[11px] text-gray-500 font-medium mb-4">
+                            No hay quiebre mes a mes disponible desde la sincronización automática: se compara el total real del período contra lo que resultaría de sostener el promedio mensual durante esos mismos 7 meses.
+                          </p>
+                          <div className="space-y-3">
+                            {[
+                              { etiqueta: 'Total real del período', valor: vistaActual.total },
+                              { etiqueta: 'Promedio mensual × 7 meses', valor: (vistaActual.promedioMensual ?? 0) * 7 },
+                            ].map((fila) => (
+                              <div key={fila.etiqueta}>
+                                <div className="flex justify-between text-xs font-bold text-gray-300 mb-1">
+                                  <span>{fila.etiqueta}</span>
+                                  <span>{fila.valor.toLocaleString('es-AR', { maximumFractionDigits: 0 })}</span>
+                                </div>
+                                <div className="h-2.5 w-full bg-white/10 rounded-full overflow-hidden">
+                                  <div
+                                    className="h-full bg-yellow-400/70 rounded-full"
+                                    style={{ width: `${Math.min((fila.valor / vistaActual.total) * 100, 100)}%` }}
+                                  />
+                                </div>
+                              </div>
+                            ))}
                           </div>
                         </div>
-                        <div className="h-3 w-full bg-gray-100 rounded-full overflow-hidden">
-                          <motion.div
-                            initial={{ width: 0 }}
-                            animate={{ width: `${(marca.cuotaMercado / cuotaMercadoMaxima) * 100}%` }}
-                            transition={{ duration: 0.6, ease: 'easeOut', delay: idx * 0.05 }}
-                            className={`h-full rounded-full ${esRenault ? 'bg-yellow-500' : 'bg-gray-300'}`}
-                          />
+                      )}
+
+                      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+                        {/* Resumen lateral */}
+                        <div className="lg:col-span-2 bg-white/5 rounded-2xl border border-white/10 p-5 space-y-4 h-fit">
+                          <h3 className="text-xs font-black uppercase tracking-wide text-gray-400">Resumen</h3>
+                          <div className="flex items-center gap-3">
+                            <div className="bg-yellow-500/15 p-2 rounded-xl"><Crown className="h-5 w-5 text-yellow-400 fill-yellow-400" /></div>
+                            <div>
+                              <p className="text-[11px] font-bold text-gray-500 uppercase">Marca Líder</p>
+                              <p className="text-lg font-black text-white">{vistaActual.marcaLider}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <div className="bg-white/10 p-2 rounded-xl"><Building2 className="h-5 w-5 text-yellow-400" /></div>
+                            <div>
+                              <p className="text-[11px] font-bold text-gray-500 uppercase">Renault — Posición</p>
+                              <p className="text-lg font-black text-yellow-400">
+                                {posicionRenault > 0 ? `${posicionRenault}° lugar` : '-'}
+                                {datosRenault && (
+                                  <span className="text-sm text-gray-400 font-bold ml-1.5">
+                                    ({vistaMercado === 'conversion' ? `${datosRenault.valor.toFixed(2)}%` : datosRenault.valor.toLocaleString('es-AR')})
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Ranking completo por marca */}
+                        <div className="lg:col-span-3 bg-white/5 rounded-2xl border border-white/10 p-5">
+                          <h3 className="text-xs font-black uppercase tracking-wide text-gray-400 mb-4">Ranking por Marca</h3>
+                          <div className="space-y-3">
+                            {vistaActual.ranking.map((item, idx) => {
+                              const esRenault = item.marca === 'RENAULT';
+                              return (
+                                <div
+                                  key={item.marca}
+                                  className={`rounded-xl p-2.5 ${esRenault ? 'bg-yellow-500/10 border border-yellow-500/40 shadow-[0_0_20px_rgba(255,204,0,0.25)]' : ''}`}
+                                >
+                                  <div className="flex items-center justify-between mb-1.5 gap-2">
+                                    <span className={`text-sm font-black flex items-center gap-1.5 ${esRenault ? 'text-yellow-400' : 'text-gray-200'}`}>
+                                      #{idx + 1} {item.marca}
+                                      {esRenault && <Crown className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />}
+                                    </span>
+                                    <span className={`text-sm font-black ${esRenault ? 'text-yellow-400' : 'text-gray-300'}`}>
+                                      {vistaMercado === 'conversion' ? `${item.valor.toFixed(2)}%` : item.valor.toLocaleString('es-AR')}
+                                    </span>
+                                  </div>
+                                  <div className="h-2.5 w-full bg-white/10 rounded-full overflow-hidden">
+                                    <motion.div
+                                      initial={{ width: 0 }}
+                                      animate={{ width: `${(item.valor / valorMaximoRanking) * 100}%` }}
+                                      transition={{ duration: 0.6, ease: 'easeOut', delay: idx * 0.04 }}
+                                      className={`h-full rounded-full ${esRenault ? 'bg-yellow-400' : 'bg-white/30'}`}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
                         </div>
                       </div>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* === FACTURACIÓN (pestaña "FC" de CCA) === */}
-              <div className="mt-8">
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Facturación (FC)</h3>
-                {ccaStats ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <TarjetaMetrica
-                      icono={BarChart3}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Total Facturación"
-                      valor={ccaStats.facturacion.total.toLocaleString('es-AR')}
-                      tendencia={ccaStats.facturacion.variacionMensual}
-                      subtexto="vs. período anterior"
-                    />
-                    <TarjetaMetrica
-                      icono={Crown}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Marca Líder"
-                      valor={ccaStats.facturacion.marcaLider}
-                      subtexto="En unidades facturadas"
-                    />
-                    <TarjetaMetrica
-                      icono={BarChart3}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Promedio Mensual"
-                      valor={ccaStats.facturacion.promedioMensual != null ? ccaStats.facturacion.promedioMensual.toLocaleString('es-AR') : '-'}
-                      subtexto="Unidades por mes"
-                    />
-                    <TarjetaMetrica
-                      icono={Crown}
-                      colorIcono="text-yellow-400"
-                      colorFondo="bg-white/10"
-                      titulo="Renault — Facturación"
-                      valor={ccaStats.facturacion.cuotaRenault != null ? `${ccaStats.facturacion.cuotaRenault.toFixed(1)}%` : '-'}
-                      subtexto={ccaStats.facturacion.renault != null ? `${ccaStats.facturacion.renault.toLocaleString('es-AR')} unidades` : undefined}
-                      destacada
-                    />
-                  </div>
-                ) : (
-                  <PanelPendienteSync etiqueta="Facturación (FC)" />
-                )}
-              </div>
-
-              {/* === CONVERSIÓN (pestaña "Conversión" de CCA) === */}
-              <div className="mt-8">
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Conversión</h3>
-                {ccaStats ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    <TarjetaMetrica
-                      icono={Percent}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Conversión Total"
-                      valor={`${ccaStats.conversion.total.toFixed(1)}%`}
-                      tendencia={ccaStats.conversion.variacionMensual}
-                      subtexto="vs. período anterior"
-                    />
-                    <TarjetaMetrica
-                      icono={Crown}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Marca Líder"
-                      valor={ccaStats.conversion.marcaLider}
-                      subtexto="Mayor % de conversión"
-                    />
-                    <TarjetaMetrica
-                      icono={Crown}
-                      colorIcono="text-yellow-400"
-                      colorFondo="bg-white/10"
-                      titulo="Renault — Conversión"
-                      valor={ccaStats.conversion.renault != null ? `${ccaStats.conversion.renault.toFixed(1)}%` : '-'}
-                      destacada
-                    />
-                  </div>
-                ) : (
-                  <PanelPendienteSync etiqueta="Conversión" />
-                )}
-              </div>
-
-              {/* === MERCADO TOTAL (pestaña "Mercado Total" de CCA) === */}
-              <div className="mt-8">
-                <h3 className="text-sm font-black text-gray-900 uppercase tracking-wide mb-3">Mercado Total</h3>
-                {ccaStats ? (
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <TarjetaMetrica
-                      icono={Users}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Suscripciones"
-                      valor={ccaStats.mercadoTotal.suscripciones.toLocaleString('es-AR')}
-                    />
-                    <TarjetaMetrica
-                      icono={BarChart3}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Facturación"
-                      valor={ccaStats.mercadoTotal.facturacion.toLocaleString('es-AR')}
-                    />
-                    <TarjetaMetrica
-                      icono={Percent}
-                      colorIcono="text-gray-700"
-                      colorFondo="bg-gray-100"
-                      titulo="Conversión"
-                      valor={`${ccaStats.mercadoTotal.conversionPct.toFixed(1)}%`}
-                    />
-                  </div>
-                ) : (
-                  <PanelPendienteSync etiqueta="Mercado Total" />
-                )}
-              </div>
+                    </>
+                  )}
+                </motion.div>
+              </AnimatePresence>
             </div>
 
             {/* LEYENDA OFICIAL DE LA FUENTE */}

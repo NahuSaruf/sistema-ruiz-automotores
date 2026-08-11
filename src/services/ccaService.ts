@@ -10,6 +10,11 @@
 // cualquier falla del proxy o del fetch devuelve un motivo específico, y el llamador
 // decide si mostrar el último dato cacheado.
 
+export interface ItemRankingCCA {
+  marca: string;
+  valor: number; // unidades o %, según la pestaña
+}
+
 export interface CcaMetrica {
   total: number; // unidad según la pestaña: cantidad para Suscripciones/FC, % para Conversión
   marcaLider: string;
@@ -17,6 +22,7 @@ export interface CcaMetrica {
   promedioMensual: number | null; // no aplica a Conversión
   renault: number | null; // valor de Renault en esta métrica (cantidad o %, según la pestaña)
   cuotaRenault?: number | null; // % de Renault sobre el total (sólo Suscripciones/FC; Conversión ya es %)
+  ranking: ItemRankingCCA[]; // ordenado de mayor a menor valor
 }
 
 export interface CcaStats {
@@ -43,18 +49,21 @@ const CCA_CACHE_KEY = 'cca_stats_cache';
 // (más lento que un fetch simple): le damos más margen que a un pedido HTTP común.
 const TIMEOUT_MS = 28000;
 
-// Valida que lo cacheado tenga la forma actual de CcaStats. Necesario porque versiones
-// anteriores de esta app guardaban un formato plano distinto (totalSuscripciones,
-// variacionMensual, cuotaRenault) bajo la misma clave: sin este chequeo, un usuario con
-// esa caché vieja en el navegador rompe el panel entero al intentar leer
-// datos.suscripciones.total sobre un objeto que no lo tiene.
+// Valida que lo cacheado tenga la forma actual de CcaStats, incluyendo el ranking por
+// marca de cada pestaña. Necesario porque versiones anteriores de esta app guardaron
+// formatos distintos bajo la misma clave (uno plano, otro sin "ranking"): sin este
+// chequeo, un usuario con esa caché vieja en el navegador rompe el panel entero al
+// intentar leer datos.suscripciones.ranking sobre un objeto que no lo tiene.
+const esMetricaValida = (valor: unknown): boolean =>
+  !!valor && typeof valor === 'object' && Array.isArray((valor as Record<string, unknown>).ranking);
+
 const esCcaStatsValido = (valor: unknown): valor is CcaStats => {
   if (!valor || typeof valor !== 'object') return false;
   const v = valor as Record<string, unknown>;
   return (
-    typeof v.suscripciones === 'object' && v.suscripciones !== null &&
-    typeof v.facturacion === 'object' && v.facturacion !== null &&
-    typeof v.conversion === 'object' && v.conversion !== null &&
+    esMetricaValida(v.suscripciones) &&
+    esMetricaValida(v.facturacion) &&
+    esMetricaValida(v.conversion) &&
     typeof v.mercadoTotal === 'object' && v.mercadoTotal !== null
   );
 };
