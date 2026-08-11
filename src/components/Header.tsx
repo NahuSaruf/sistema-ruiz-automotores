@@ -27,9 +27,9 @@ export default function Header({ onUserClick, onHomeClick, onClienteClick, onLic
         onClick={onHomeClick}
       >
         <img
-          src="/logo_plan_rombo.png"
+          src="/logo Ruiz_png.png"
           alt="Ruiz Automotores"
-          className="h-[50px] sm:h-[80px] w-auto object-contain mt-1 drop-shadow-[0_10px_20px_rgba(234,179,8,0.25)]"
+          className="h-10 sm:h-12 w-auto object-contain drop-shadow-[0_4px_12px_rgba(234,179,8,0.2)]"
         />
       </motion.div>
       
