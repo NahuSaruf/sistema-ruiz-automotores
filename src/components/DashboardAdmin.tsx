@@ -5,7 +5,7 @@ import {
   Search, Trophy, RefreshCw, Target, X, ExternalLink, Save, CheckCircle2, Files,
   Trash2, AlertTriangle, Award, MessageCircle, Eye, MapPin, Cloud,
   TrendingUp, TrendingDown, Percent, BarChart3, Building2, Crown,
-  Receipt, Layers, LineChart,
+  Receipt, Layers, LineChart, ChevronDown,
 } from 'lucide-react';
 import {
   procesarArchivoExcel, ClientePlan,
@@ -388,8 +388,15 @@ export default function DashboardAdmin() {
   // null = "Todas" (vista normal por pestañas); con una marca elegida se reemplaza
   // el panel por la comparativa frente a frente, sin importar qué pestaña estaba activa.
   const [marcaSeleccionada, setMarcaSeleccionada] = useState<string | null>(null);
+  // Selector "Mirando ahora: <marca> ▾" dentro del panel Comparativa, para cambiar
+  // de competidor sin salir de la vista ni volver a la franja de filtro de arriba.
+  const [dropdownMarcaAbierto, setDropdownMarcaAbierto] = useState(false);
 
   const MARCAS_FILTRO = ['RENAULT', 'FIAT', 'TOYOTA', 'VOLKSWAGEN', 'PEUGEOT', 'CHEVROLET', 'FORD', 'NISSAN'];
+  // Mismo listado sin Renault: es el que se ofrece para "cambiar de competidor",
+  // porque Renault siempre queda fijo en su propio cuadrito al lado.
+  const MARCAS_COMPETIDORAS = MARCAS_FILTRO.filter((m) => m !== 'RENAULT');
+  const formatoMarca = (marca: string): string => marca.charAt(0) + marca.slice(1).toLowerCase();
 
   const valorDeMarca = (ranking: ItemRanking[], marca: string): number =>
     ranking.find((r) => r.marca === marca)?.valor ?? 0;
@@ -1478,7 +1485,7 @@ export default function DashboardAdmin() {
                         : 'bg-[#0B0F19] text-gray-300 hover:text-white border border-white/10'
                     }`}
                   >
-                    {marca === 'RENAULT' && <Crown className="h-3.5 w-3.5" />} {marca.charAt(0) + marca.slice(1).toLowerCase()}
+                    {marca === 'RENAULT' && <Crown className="h-3.5 w-3.5" />} {formatoMarca(marca)}
                   </motion.button>
                 ))}
               </div>
@@ -1523,12 +1530,56 @@ export default function DashboardAdmin() {
                     transition={{ duration: 0.25, ease: 'easeOut' }}
                     className="bg-[#0B0F19] rounded-3xl border border-white/10 shadow-2xl p-6"
                   >
-                    <div className="flex items-center justify-between flex-wrap gap-2 mb-6">
-                      <h3 className="text-base font-black text-white flex items-center gap-2">
-                        {marcaSeleccionada.charAt(0) + marcaSeleccionada.slice(1).toLowerCase()}
+                    <div className="flex items-center justify-between flex-wrap gap-3 mb-6">
+                      <div className="flex items-center gap-2.5 flex-wrap">
+                        <span className="text-[11px] font-bold text-gray-500 uppercase tracking-wide">Mirando ahora:</span>
+
+                        {/* Selector "Mirando ahora: <marca> ▾" — cambia de competidor sin
+                            salir de la Comparativa ni volver a la franja de filtro de arriba. */}
+                        <div className="relative">
+                          <motion.button
+                            whileHover={{ scale: 1.02 }}
+                            whileTap={{ scale: 0.98 }}
+                            onClick={() => setDropdownMarcaAbierto((abierto) => !abierto)}
+                            className="flex items-center gap-1.5 bg-white/10 hover:bg-white/20 border border-white/10 rounded-xl px-3.5 py-1.5 text-sm font-black text-white transition-colors"
+                          >
+                            {formatoMarca(marcaSeleccionada)}
+                            <ChevronDown className={`h-3.5 w-3.5 transition-transform ${dropdownMarcaAbierto ? 'rotate-180' : ''}`} />
+                          </motion.button>
+
+                          {dropdownMarcaAbierto && (
+                            <div className="fixed inset-0 z-10" onClick={() => setDropdownMarcaAbierto(false)} />
+                          )}
+                          <AnimatePresence>
+                            {dropdownMarcaAbierto && (
+                              <motion.div
+                                initial={{ opacity: 0, y: -6 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -6 }}
+                                transition={{ duration: 0.15, ease: 'easeOut' }}
+                                className="absolute z-20 mt-2 w-52 bg-[#0B0F19] border border-white/10 rounded-xl shadow-2xl overflow-hidden py-1"
+                              >
+                                {MARCAS_COMPETIDORAS.map((marca) => (
+                                  <button
+                                    key={marca}
+                                    onClick={() => { setMarcaSeleccionada(marca); setDropdownMarcaAbierto(false); }}
+                                    className={`w-full text-left px-4 py-2 text-xs font-bold transition-colors ${
+                                      marca === marcaSeleccionada ? 'bg-yellow-500/20 text-yellow-400' : 'text-gray-300 hover:bg-white/10 hover:text-white'
+                                    }`}
+                                  >
+                                    {formatoMarca(marca)}
+                                  </button>
+                                ))}
+                              </motion.div>
+                            )}
+                          </AnimatePresence>
+                        </div>
+
                         <span className="text-gray-500 text-xs font-bold uppercase">vs.</span>
-                        <Crown className="h-4 w-4 text-yellow-400 fill-yellow-400" /> Renault — Plan Rombo
-                      </h3>
+                        <span className="flex items-center gap-1.5 text-sm font-black text-yellow-400">
+                          <Crown className="h-4 w-4 fill-yellow-400" /> Renault — Plan Rombo
+                        </span>
+                      </div>
                       <button
                         onClick={() => setMarcaSeleccionada(null)}
                         className="text-xs font-bold text-gray-400 hover:text-white flex items-center gap-1.5 transition-colors"
@@ -1563,7 +1614,7 @@ export default function DashboardAdmin() {
                         icono={Trophy}
                         titulo="Puesto Ranking Nacional"
                         valor={comparativaMarca.puestoNacional ? `${comparativaMarca.puestoNacional}°` : '-'}
-                        subtexto={`${marcaSeleccionada.charAt(0) + marcaSeleccionada.slice(1).toLowerCase()} · Suscripciones`}
+                        subtexto={`${formatoMarca(marcaSeleccionada)} · Suscripciones`}
                         destacada
                       />
                     </div>
