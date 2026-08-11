@@ -8,6 +8,7 @@ import LicitacionesCliente from './components/LicitacionesCliente';
 import ModalOfertaLicitacion from './components/ModalOfertaLicitacion';
 import { ClienteCartera } from './utils/excelParser';
 import { buscarClientePorConsultaConNube } from './lib/supabase';
+import { get360Cover, get360Frames } from './utils/assets';
 
 // Versiones reales por modelo, con foto, secuencia 360°, ficha técnica y plan propios.
 interface VersionVehiculo {
@@ -42,44 +43,61 @@ interface PlanVitrina {
   diferimiento: string;
 }
 
-// Genera la secuencia de fotogramas 360° a partir del nombre base de archivo en public/.
-const fotogramas360 = (base: string, cantidad: number, conEspacio = true): string[] =>
-  Array.from({ length: cantidad }, (_, i) => `/${base}${conEspacio ? ' ' : ''}${i + 1}.png`);
+// Arma una VersionVehiculo con sus 8 fotogramas y portada (frame 1) resueltos vía
+// src/utils/assets.ts, en vez de un helper local — así App.tsx y DashboardCliente.tsx
+// comparten el mismo mapeo estricto nombre-de-versión -> prefijo de archivo real.
+const version = (
+  nombre: string,
+  familia: string,
+  datos: Omit<VersionVehiculo, 'nombre' | 'familia' | 'imgPortada' | 'fotogramas'>
+): VersionVehiculo => ({
+  nombre,
+  familia,
+  imgPortada: get360Cover(nombre),
+  fotogramas: get360Frames(nombre),
+  ...datos,
+});
 
 const versionesPorModelo: Record<string, VersionVehiculo[]> = {
   KWID: [
-    { nombre: 'Kwid Bitono', familia: 'KWID', imgPortada: '/Kwid Bitono 1.png', fotogramas: fotogramas360('Kwid Bitono', 5), motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '16 km/l', baul: '300 litros', equipamiento: 'Llantas bitono, aire acondicionado, dirección asistida', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$231.000' },
-    { nombre: 'Kwid Outsider', familia: 'KWID', imgPortada: '/Kwid Outsider.png', fotogramas: fotogramas360('Kwid Outsider', 6), motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '15.5 km/l', baul: '300 litros', equipamiento: 'Paquete aventura, barras de techo, faros antiniebla', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$238.000' },
+    version('Kwid Bitono', 'KWID', { motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '16 km/l', baul: '300 litros', equipamiento: 'Llantas bitono, aire acondicionado, dirección asistida', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$231.000' }),
+    version('Kwid Outsider', 'KWID', { motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '15.5 km/l', baul: '300 litros', equipamiento: 'Paquete aventura, barras de techo, faros antiniebla', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$238.000' }),
   ],
   KARDIAN: [
-    { nombre: 'Kardian Evolution MT', familia: 'KARDIAN', imgPortada: '/Kardian Evolution MT.png', fotogramas: fotogramas360('Kardian Evolution MT', 6), motor: '1.6 SCe 115cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '14.5 km/l', baul: '410 litros', equipamiento: 'Pantalla 7" Android Auto/CarPlay, cámara trasera', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$245.500' },
-    { nombre: 'Kardian Evolution EDC', familia: 'KARDIAN', imgPortada: '/Kardian Evolution EDC 1.png', fotogramas: fotogramas360('Kardian Evolution EDC', 5), motor: '1.0 TCe 120cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '16 km/l', baul: '410 litros', equipamiento: 'Climatizador automático, sensores de estacionamiento', tipoPlan: 'Plan 75/25 en 100 Cuotas', cuota: '$225.000' },
-    { nombre: 'Kardian Iconic', familia: 'KARDIAN', imgPortada: '/Kardian Iconic 1.png', fotogramas: fotogramas360('Kardian Iconic', 5), motor: '1.0 TCe 120cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '16 km/l', baul: '410 litros', equipamiento: 'Techo panorámico, tapizado de cuero, asistentes ADAS', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$210.000' },
+    version('Kardian Evolution 156 MT', 'KARDIAN', { motor: '1.6 SCe 156cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '14.5 km/l', baul: '410 litros', equipamiento: 'Pantalla 7" Android Auto/CarPlay, cámara trasera', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$245.500' }),
+    version('Kardian Evolution 200 EDC', 'KARDIAN', { motor: '1.0 TCe 120cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '16 km/l', baul: '410 litros', equipamiento: 'Climatizador automático, sensores de estacionamiento', tipoPlan: 'Plan 75/25 en 100 Cuotas', cuota: '$225.000' }),
+    version('Kardian Iconic 200 EDC', 'KARDIAN', { motor: '1.0 TCe 120cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '16 km/l', baul: '410 litros', equipamiento: 'Techo panorámico, tapizado de cuero, asistentes ADAS', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$210.000' }),
   ],
   DUSTER: [
-    { nombre: 'Duster Intens MT', familia: 'DUSTER', imgPortada: '/Duster Intens MT 1.png', fotogramas: fotogramas360('Duster Intens MT', 7), motor: '1.6 SCe 115cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '13 km/l', baul: '445 litros', equipamiento: 'Multimedia 8", cámara trasera, control de estabilidad', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$279.000' },
-    { nombre: 'Duster Iconic 4X2 MT', familia: 'DUSTER', imgPortada: '/Duster Iconic 4X2 MT 1.png', fotogramas: fotogramas360('Duster Iconic 4X2 MT', 5), motor: '1.6 SCe 115cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '12.5 km/l', baul: '445 litros', equipamiento: 'Techo panorámico, asientos de cuero, cámara 360°', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$298.000' },
+    version('Duster Intens MT', 'DUSTER', { motor: '1.6 SCe 115cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '13 km/l', baul: '445 litros', equipamiento: 'Multimedia 8", cámara trasera, control de estabilidad', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$279.000' }),
+    version('Duster Iconic CVT', 'DUSTER', { motor: '1.3 TCe 163cv Turbo', transmision: 'Automática CVT', traccion: '4x2', consumo: '12.5 km/l', baul: '445 litros', equipamiento: 'Techo panorámico, asientos de cuero, cámara 360°', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$298.000' }),
   ],
   BOREAL: [
-    { nombre: 'Boreal Evolution', familia: 'BOREAL', imgPortada: '/Boreal Evolution.png', fotogramas: fotogramas360('Boreal Evolution', 6), motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12.5 km/l', baul: '500 litros', equipamiento: 'Pantalla 8", control de crucero, sensores de estacionamiento', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$430.000' },
-    { nombre: 'Boreal Techno', familia: 'BOREAL', imgPortada: '/Boreal Techno.png', fotogramas: fotogramas360('Boreal Techno', 5), motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12 km/l', baul: '500 litros', equipamiento: 'Pantalla 9.3" vertical, cámara 360°, techo panorámico', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$445.000' },
-    { nombre: 'Boreal Iconic', familia: 'BOREAL', imgPortada: '/Boreal Iconic 1.png', fotogramas: fotogramas360('Boreal Iconic', 6), motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12 km/l', baul: '500 litros', equipamiento: 'Asientos de cuero, ADAS completo, sonido premium', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$457.000' },
+    version('Boreal Evolution', 'BOREAL', { motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12.5 km/l', baul: '500 litros', equipamiento: 'Pantalla 8", control de crucero, sensores de estacionamiento', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$430.000' }),
+    version('Boreal Techno', 'BOREAL', { motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12 km/l', baul: '500 litros', equipamiento: 'Pantalla 9.3" vertical, cámara 360°, techo panorámico', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$445.000' }),
+    version('Boreal Iconic', 'BOREAL', { motor: '1.3 TCe 156cv Turbo', transmision: 'Automática EDC 6v', traccion: '4x2', consumo: '12 km/l', baul: '500 litros', equipamiento: 'Asientos de cuero, ADAS completo, sonido premium', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$457.000' }),
   ],
   KANGOO: [
-    { nombre: 'Kangoo Express 2A', familia: 'KANGOO', imgPortada: '/Kangoo2a.png', fotogramas: fotogramas360('Kangoo2a', 6, false), motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: 'Hasta 800 kg de carga', equipamiento: 'Mampara de carga, cierre centralizado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$240.000' },
-    { nombre: 'Kangoo Express 5A', familia: 'KANGOO', imgPortada: '/Kangoo5a.png', fotogramas: fotogramas360('Kangoo5a', 6, false), motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13 km/l', baul: '5 plazas + espacio de carga', equipamiento: '5 plazas, aire acondicionado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$275.000' },
-    { nombre: 'Kangoo Stepway', familia: 'KANGOO', imgPortada: '/Kango_Stepway.png', fotogramas: [], motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: '3 plazas + baúl utilitario', equipamiento: 'Barras de techo, paragolpes protegidos', tipoPlan: 'Plan 80/20 en 120 Cuotas', cuota: '$258.000' },
+    version('Kangoo Express 2A', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: 'Hasta 800 kg de carga', equipamiento: 'Mampara de carga, cierre centralizado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$240.000' }),
+    version('Kangoo Express 5A', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13 km/l', baul: '5 plazas + espacio de carga', equipamiento: '5 plazas, aire acondicionado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$275.000' }),
+    version('Kangoo Stepway', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: '3 plazas + baúl utilitario', equipamiento: 'Barras de techo, paragolpes protegidos', tipoPlan: 'Plan 80/20 en 120 Cuotas', cuota: '$258.000' }),
   ],
   OROCH: [
-    { nombre: 'Oroch Emotion 1.6 4x2 MT', familia: 'OROCH', imgPortada: '/Duster Oroch Emotion 1.6 4x2 MT.png', fotogramas: fotogramas360('Duster Oroch Emotion 1.6 4x2 MT', 7), motor: '1.6 SCe 114cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '12.8 km/l', baul: 'Caja de carga 650 kg', equipamiento: 'Barras antivuelco, paragolpes protegidos', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$285.000' },
-    { nombre: 'Oroch Iconic 1.3 4x2 AT', familia: 'OROCH', imgPortada: '/Duster Oroch Iconic 1.3 4x2 AT 1.png', fotogramas: fotogramas360('Duster Oroch Iconic 1.3 4x2 AT', 5), motor: '1.3 TCe 163cv Turbo', transmision: 'Automática CVT', traccion: '4x2', consumo: '11 km/l', baul: 'Caja de carga 650 kg', equipamiento: 'Techo panorámico, cámara 360°', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$318.000' },
+    version('Oroch Emotion', 'OROCH', { motor: '1.6 SCe 114cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '12.8 km/l', baul: 'Caja de carga 650 kg', equipamiento: 'Barras antivuelco, paragolpes protegidos', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$285.000' }),
+    version('Oroch Iconic', 'OROCH', { motor: '1.3 TCe 163cv Turbo', transmision: 'Automática CVT', traccion: '4x2', consumo: '11 km/l', baul: 'Caja de carga 650 kg', equipamiento: 'Techo panorámico, cámara 360°', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$318.000' }),
   ],
   MASTER: [
-    { nombre: 'Master Furgón L2H2 2.3 dCi', familia: 'MASTER', imgPortada: '/Master.png', fotogramas: fotogramas360('Master', 7, false), motor: '2.3 dCi 130cv Diesel', transmision: 'Manual 6v', traccion: '4x2', consumo: '9.5 km/l', baul: 'Hasta 17 m³', equipamiento: 'Doble puerta lateral, ABS + ESP', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$587.000' },
+    version('Master', 'MASTER', { motor: '2.3 dCi 130cv Diesel', transmision: 'Manual 6v', traccion: '4x2', consumo: '9.5 km/l', baul: 'Hasta 17 m³', equipamiento: 'Doble puerta lateral, ABS + ESP', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$587.000' }),
+  ],
+  ARKANA: [
+    version('Arkana E-Tech Hybrid', 'ARKANA', { motor: '1.6 E-Tech Hybrid 145cv', transmision: 'Automática E-Tech (multi-modo)', traccion: '4x2', consumo: '18.5 km/l', baul: '480 litros', equipamiento: 'Techo panorámico, tapizado de cuero, sonido premium Harman Kardon', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$620.000' }),
+  ],
+  KOLEOS: [
+    version('Koleos Techno', 'KOLEOS', { motor: '2.5 4 cil. 170cv', transmision: 'Automática CVT', traccion: '4x4', consumo: '10.5 km/l', baul: '458 litros', equipamiento: 'Techo panorámico, cámara 360°, asistentes ADAS completos', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$690.000' }),
   ],
 };
 
-const FAMILIAS_CATALOGO = ['KWID', 'KARDIAN', 'DUSTER', 'BOREAL', 'KANGOO', 'OROCH', 'MASTER'];
+const FAMILIAS_CATALOGO = ['KWID', 'KARDIAN', 'DUSTER', 'BOREAL', 'KANGOO', 'OROCH', 'MASTER', 'ARKANA', 'KOLEOS'];
 
 // Visor 360° por versión: giro automático estilo GIF + arrastre manual (mouse o táctil), usa la secuencia de fotogramas exacta.
 function VisorVersion360({ version, autoGirar = false }: { version: VersionVehiculo; autoGirar?: boolean }) {

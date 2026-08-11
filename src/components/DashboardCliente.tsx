@@ -6,17 +6,19 @@ import {
 import { CONDICIONES_STORAGE_KEY, cargarCondiciones } from '../utils/condicionesComerciales';
 import { ClienteCartera } from '../utils/excelParser';
 import { nubeConfigurada } from '../lib/supabase';
+import { TOTAL_FOTOS_360, get360Frame, get360Cover } from '../utils/assets';
 
 interface Props {
   clienteActivo?: ClienteCartera | null;
   onIrALicitaciones?: () => void;
 }
 
-const KARDIAN_VERSION_NOMBRE = 'Kardian Evolution 1.6 MT';
-const KARDIAN_VERSION_ARCHIVO = 'Kardian Evolution MT';
+// Mismo nombre de versión que usa App.tsx (versionesPorModelo.KARDIAN) — resuelve
+// al mismo prefijo de archivo real vía src/utils/assets.ts.
+const KARDIAN_VERSION_NOMBRE = 'Kardian Evolution 156 MT';
 
 const CARACTERISTICAS_KARDIAN: { Icono: typeof Settings; label: string; valor: string }[] = [
-  { Icono: Settings, label: 'Motor', valor: '1.6 SCe 115cv' },
+  { Icono: Settings, label: 'Motor', valor: '1.6 SCe 156cv' },
   { Icono: Gauge, label: 'Transmisión', valor: 'Manual 5v' },
   { Icono: Activity, label: 'Tracción', valor: '4x2' },
   { Icono: Fuel, label: 'Consumo', valor: '14.5 km/l' },
@@ -51,8 +53,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // VISOR 360° CON GIRO AUTOMÁTICO
-  const TOTAL_FOTOS_360 = 6; 
+  // VISOR 360° CON GIRO AUTOMÁTICO (8 fotogramas universales, ver src/utils/assets.ts)
   const [rotacion, setRotacion] = useState(1);
   const [autoGirar, setAutoGirar] = useState(true);
   const [isDragging, setIsDragging] = useState(false);
@@ -392,7 +393,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             >
               <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl bg-gradient-to-b from-gray-50 to-gray-200 border border-white/10">
                 <img
-                  src={`/${KARDIAN_VERSION_ARCHIVO} ${rotacion}.png`}
+                  src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
                   alt="Auto 360"
                   draggable={false}
                   className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
@@ -400,7 +401,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
                     const target = e.target as HTMLImageElement;
                     if (target.dataset.fallback !== '1') {
                       target.dataset.fallback = '1';
-                      target.src = `/${KARDIAN_VERSION_ARCHIVO}.png`;
+                      target.src = get360Cover(KARDIAN_VERSION_NOMBRE);
                     }
                   }}
                 />
