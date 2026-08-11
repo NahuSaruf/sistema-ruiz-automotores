@@ -459,32 +459,34 @@ export default function App() {
                 <motion.div
                   key={auto.nombre}
                   whileHover={{ y: -4 }}
-                  className="bg-gray-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 overflow-hidden flex flex-col relative"
+                  className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl shadow-2xl border border-white/10 overflow-hidden relative"
                 >
-                  {/* Badges superior derecho: relación de plan + cantidad de cuotas */}
-                  <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">
-                    <span className="bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">
-                      Plan: {auto.planRatio}
-                    </span>
-                    <span className="bg-black/70 text-white text-[10px] font-bold px-2.5 py-1 rounded-full backdrop-blur-md">
-                      {auto.cuotasTotales} Cuotas
-                    </span>
-                  </div>
+                  <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
+                  <div className="relative z-10 flex flex-col h-full">
+                    {/* Badges superior derecho: relación de plan + cantidad de cuotas */}
+                    <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">
+                      <span className="bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">
+                        Plan: {auto.planRatio}
+                      </span>
+                      <span className="bg-black/70 text-white text-[10px] font-bold px-2.5 py-1 rounded-full backdrop-blur-md">
+                        {auto.cuotasTotales} Cuotas
+                      </span>
+                    </div>
 
-                  <div className="bg-gradient-to-b from-gray-100 to-gray-300 w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
-                    <img
-                      src={auto.imgVitrina}
-                      alt={auto.nombre}
-                      className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
-                      draggable={false}
-                    />
-                  </div>
+                    <div className="bg-gradient-to-b from-gray-100 to-gray-300 w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
+                      <img
+                        src={auto.imgVitrina}
+                        alt={auto.nombre}
+                        className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
+                        draggable={false}
+                      />
+                    </div>
 
-                  <div className="p-5 flex flex-col gap-3 flex-grow">
-                    <h3 className="text-lg font-black text-white">{auto.nombre}</h3>
-                    <EstrellasRating valor={auto.rating} />
+                    <div className="p-5 flex flex-col gap-3 flex-grow">
+                      <h3 className="text-lg font-black text-white">{auto.nombre}</h3>
+                      <EstrellasRating valor={auto.rating} />
 
-                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] bg-white/5 border border-white/10 rounded-xl p-3">
+                      <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] bg-white/5 border border-white/10 rounded-xl p-3">
                       <span className="text-gray-500 font-bold">Segmento</span>
                       <span className="text-white font-bold text-right">{auto.segmento}</span>
                       <span className="text-gray-500 font-bold">Valor Móvil</span>
@@ -515,6 +517,7 @@ export default function App() {
                         <MessageCircle className="h-3.5 w-3.5 text-green-400" /> WhatsApp Consultar
                       </a>
                     </div>
+                  </div>
                   </div>
                 </motion.div>
               ))}
@@ -732,8 +735,12 @@ export default function App() {
             <motion.button whileHover={{ scale: 1.15, rotate: 90 }} whileTap={{ scale: 0.9 }} onClick={() => setVersionFicha(null)} className="absolute top-4 right-4 text-gray-400 hover:text-white transition-colors z-10"><X className="h-6 w-6" /></motion.button>
 
             <div className="flex flex-col md:flex-row gap-8 items-center">
-              <div className="flex-1 w-full">
-                <VisorVersion360 key={versionFicha.nombre} version={versionFicha} autoGirar />
+              {/* Contenedor del Visor 360° — foto de la Casa Central (Av. Perón) de fondo */}
+              <div className="flex-1 w-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl relative overflow-hidden p-3">
+                <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
+                <div className="relative z-10">
+                  <VisorVersion360 key={versionFicha.nombre} version={versionFicha} autoGirar />
+                </div>
               </div>
 
               <div className="flex-1 w-full space-y-5">

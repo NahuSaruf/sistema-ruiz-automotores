@@ -340,41 +340,44 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
       <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8 items-start">
         
         <div className="lg:col-span-2 space-y-6">
-          {/* VISOR 360° CON GIRO AUTOMÁTICO */}
+          {/* VISOR 360° CON GIRO AUTOMÁTICO — foto de la Casa Central (Av. Perón) de fondo */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.15, ease: 'easeOut' }}
             id="seccion-vehiculo"
-            className="bg-gray-900/80 backdrop-blur-xl rounded-2xl p-6 sm:p-8 shadow-2xl border border-white/10 relative overflow-hidden flex flex-col items-center justify-center h-[420px]"
+            className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden h-[420px]"
           >
-            <div className="absolute top-6 left-6 right-6 flex justify-between items-center z-10">
-              <h2 className="text-xl font-black text-white">Mi Vehículo (Kardian 360°)</h2>
-              <motion.button
-                whileHover={{ scale: 1.05 }}
-                whileTap={{ scale: 0.95 }}
-                onClick={() => setAutoGirar(!autoGirar)}
-                className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1.5 transition-colors"
-              >
-                {autoGirar ? <Pause className="h-3.5 w-3.5 text-red-400" /> : <Play className="h-3.5 w-3.5 text-green-400" />}
-                {autoGirar ? 'Pausar Giro' : 'Auto Giro'}
-              </motion.button>
-            </div>
-            <div className="w-full max-w-lg mt-8 relative flex flex-col items-center">
-              <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl bg-gradient-to-b from-gray-50 to-gray-200 border border-white/10">
-                <img
-                  src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
-                  alt="Auto 360"
-                  draggable={false}
-                  className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    if (target.dataset.fallback !== '1') {
-                      target.dataset.fallback = '1';
-                      target.src = get360Cover(KARDIAN_VERSION_NOMBRE);
-                    }
-                  }}
-                />
+            <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
+            <div className="relative z-10 h-full p-6 sm:p-8 flex flex-col items-center justify-center">
+              <div className="absolute top-6 left-6 right-6 flex justify-between items-center">
+                <h2 className="text-xl font-black text-white">Mi Vehículo (Kardian 360°)</h2>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={() => setAutoGirar(!autoGirar)}
+                  className="bg-white/10 hover:bg-white/20 text-white text-xs font-bold px-3 py-1.5 rounded-full border border-white/10 flex items-center gap-1.5 transition-colors"
+                >
+                  {autoGirar ? <Pause className="h-3.5 w-3.5 text-red-400" /> : <Play className="h-3.5 w-3.5 text-green-400" />}
+                  {autoGirar ? 'Pausar Giro' : 'Auto Giro'}
+                </motion.button>
+              </div>
+              <div className="w-full max-w-lg mt-8 relative flex flex-col items-center">
+                <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl bg-gradient-to-b from-gray-50 to-gray-200 border border-white/10">
+                  <img
+                    src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
+                    alt="Auto 360"
+                    draggable={false}
+                    className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
+                    onError={(e) => {
+                      const target = e.target as HTMLImageElement;
+                      if (target.dataset.fallback !== '1') {
+                        target.dataset.fallback = '1';
+                        target.src = get360Cover(KARDIAN_VERSION_NOMBRE);
+                      }
+                    }}
+                  />
+                </div>
               </div>
             </div>
           </motion.div>
@@ -384,18 +387,21 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.17, ease: 'easeOut' }}
-            className="bg-gray-900/80 backdrop-blur-xl rounded-2xl p-6 shadow-2xl border border-white/10"
+            className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden"
           >
-            <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Ficha Técnica</p>
-            <p className="text-sm font-bold text-white mb-3">{KARDIAN_VERSION_NOMBRE}</p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-              {CARACTERISTICAS_KARDIAN.map(({ Icono, label, valor }) => (
-                <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                  <Icono className="h-4 w-4 text-yellow-500 mb-1" />
-                  <p className="text-[10px] font-bold text-gray-400 uppercase">{label}</p>
-                  <p className="text-xs font-bold text-white leading-tight">{valor}</p>
-                </div>
-              ))}
+            <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
+            <div className="relative z-10 p-6">
+              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Ficha Técnica</p>
+              <p className="text-sm font-bold text-white mb-3">{KARDIAN_VERSION_NOMBRE}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {CARACTERISTICAS_KARDIAN.map(({ Icono, label, valor }) => (
+                  <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <Icono className="h-4 w-4 text-yellow-500 mb-1" />
+                    <p className="text-[10px] font-bold text-gray-400 uppercase">{label}</p>
+                    <p className="text-xs font-bold text-white leading-tight">{valor}</p>
+                  </div>
+                ))}
+              </div>
             </div>
           </motion.div>
 
