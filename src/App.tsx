@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package } from 'lucide-react';
+import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package, DollarSign, FileText, RefreshCw, TrendingUp, CheckCircle2 } from 'lucide-react';
 import Header from './components/Header';
 import DashboardCliente from './components/DashboardCliente';
 import DashboardAdmin from './components/DashboardAdmin';
@@ -23,6 +23,23 @@ interface VersionVehiculo {
   equipamiento: string;
   tipoPlan: string;
   cuota: string;
+}
+
+// Ficha comercial por modelo para la vitrina "Quiero mi 0km" y su pop-up de detalle.
+interface PlanVitrina {
+  nombre: string;
+  imgVitrina: string;
+  segmento: string;
+  origen: string;
+  rating: number; // 0-5, admite medios puntos (ej. 4.5)
+  planRatio: string; // '75/25' | '80/20' | '100/0'
+  cuotasTotales: number;
+  valorMovil: number;
+  variacionMensual: number; // % vs. mes anterior
+  cuota1Estimada: string; // ya formateada, ej. "$245.500"
+  adjudicacionAsegurada: { activa: boolean; cuota: number };
+  requisitos: string;
+  diferimiento: string;
 }
 
 // Genera la secuencia de fotogramas 360° a partir del nombre base de archivo en public/.
@@ -126,6 +143,34 @@ function VisorVersion360({ version, autoGirar = false }: { version: VersionVehic
   );
 }
 
+// Puntuación en estrellas (admite medios puntos, ej. 4.5/5) para las tarjetas y el
+// pop-up de la vitrina comercial.
+function EstrellasRating({ valor }: { valor: number }) {
+  const llenas = Math.floor(valor);
+  const tieneMedia = valor - llenas >= 0.25 && valor - llenas < 0.75;
+  const vacias = Math.max(5 - llenas - (tieneMedia ? 1 : 0), 0);
+
+  return (
+    <div className="flex items-center gap-1">
+      {Array.from({ length: llenas }).map((_, i) => (
+        <Star key={`f${i}`} className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+      ))}
+      {tieneMedia && (
+        <div className="relative h-3.5 w-3.5">
+          <Star className="absolute inset-0 h-3.5 w-3.5 text-gray-600" />
+          <div className="absolute inset-0 overflow-hidden" style={{ width: '50%' }}>
+            <Star className="h-3.5 w-3.5 text-yellow-400 fill-yellow-400" />
+          </div>
+        </div>
+      )}
+      {Array.from({ length: vacias }).map((_, i) => (
+        <Star key={`v${i}`} className="h-3.5 w-3.5 text-gray-600" />
+      ))}
+      <span className="text-xs font-bold text-gray-400 ml-1">{valor.toFixed(1)}/5</span>
+    </div>
+  );
+}
+
 export default function App() {
   const [view, setView] = useState<'home' | 'user' | 'cliente' | 'admin' | 'nuevo'>('home');
   const [mostrarAccesoCliente, setMostrarAccesoCliente] = useState(false);
@@ -143,6 +188,11 @@ export default function App() {
 
   const [familiaExpandida, setFamiliaExpandida] = useState<string | null>(null);
   const [versionFicha, setVersionFicha] = useState<VersionVehiculo | null>(null);
+
+  // POP-UP DE DETALLE DE PLAN (vitrina comercial "Quiero mi 0km")
+  const [planDetalle, setPlanDetalle] = useState<PlanVitrina | null>(null);
+  const [tabPlanDetalle, setTabPlanDetalle] = useState<'valores' | 'detalle'>('valores');
+  const [seccionExpandidaPlan, setSeccionExpandidaPlan] = useState<'retiro' | 'cambio' | null>(null);
 
   // LÓGICA DE LOGIN ÚNICO
   const handleLoginSubmit = async (e: React.FormEvent) => {
@@ -173,42 +223,67 @@ export default function App() {
     setView('cliente');
   };
 
-  const catalogoModelos = [
-    { 
-      nombre: 'KWID', img: '/Kwid.png', 
-      planes: [ { tipo: 'Plan 100% en 120 Cuotas', cuota: '$231.000', motor: '1.0 66cv', traccion: '4x2', caja: 'Manual 5v', imgPlan: '/Kwid.png' } ]
+  // VITRINA COMERCIAL "QUIERO MI 0KM": una entrada por modelo con la info comercial
+  // completa (plan principal, rating, segmento, valores) que alimenta tanto la
+  // tarjeta de la vitrina como el pop-up de detalle. Los "Cuota 1" reutilizan las
+  // mismas cifras que ya se muestran en el resto de la app (Header > Modelos).
+  const vitrinaComercial: PlanVitrina[] = [
+    {
+      nombre: 'KWID', imgVitrina: '/Kwid.png', segmento: 'SUV Urbano', origen: 'Brasil',
+      rating: 4.3, planRatio: '100/0', cuotasTotales: 120, valorMovil: 23100000,
+      variacionMensual: 2.4, cuota1Estimada: '$231.000',
+      adjudicacionAsegurada: { activa: false, cuota: 0 },
+      requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
+      diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'KARDIAN', img: '/Kardian.png', 
-      planes: [
-        { tipo: 'Plan 75% en 84 Cuotas', cuota: '$245.500', motor: '1.6 115cv o 1.0T 120cv', traccion: '4x2', caja: 'Manual 5v / Automática EDC', imgPlan: '/Kardian.png' },
-        { tipo: 'Plan 75% en 120 Cuotas', cuota: '$210.000', motor: '1.6 115cv o 1.0T 120cv', traccion: '4x2', caja: 'Manual 5v / Automática EDC', imgPlan: '/Kardian.png' }
-      ]
+    {
+      nombre: 'KARDIAN', imgVitrina: '/Kardian.png', segmento: 'SUV Compacta', origen: 'Brasil',
+      rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 25550000,
+      variacionMensual: 2.8, cuota1Estimada: '$245.500',
+      adjudicacionAsegurada: { activa: true, cuota: 9 },
+      requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
+      diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'DUSTER', img: '/Duster.png', 
-      planes: [ { tipo: 'Plan 75% en 84 Cuotas', cuota: '$279.000', motor: '1.6 115cv o 1.3T 163cv', traccion: '4x2 y 4x4', caja: 'Manual 6v / Automática CVT', imgPlan: '/Duster.png' } ]
+    {
+      nombre: 'DUSTER', imgVitrina: '/Duster.png', segmento: 'SUV', origen: 'Argentina',
+      rating: 4.7, planRatio: '75/25', cuotasTotales: 84, valorMovil: 32480000,
+      variacionMensual: 3.1, cuota1Estimada: '$279.000',
+      adjudicacionAsegurada: { activa: true, cuota: 10 },
+      requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
+      diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'BOREAL', img: '/Boreal.png', 
-      planes: [ { tipo: 'Plan 75% en 84 Cuotas', cuota: '$457.000', motor: '1.3 TCe 156cv', traccion: '4x2', caja: 'Automática EDC 6v', imgPlan: '/Boreal.png' } ]
+    {
+      nombre: 'BOREAL', imgVitrina: '/Boreal.png', segmento: 'Sedán Premium', origen: 'Brasil',
+      rating: 4.4, planRatio: '75/25', cuotasTotales: 84, valorMovil: 48900000,
+      variacionMensual: 2.3, cuota1Estimada: '$457.000',
+      adjudicacionAsegurada: { activa: true, cuota: 11 },
+      requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
+      diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'KANGOO', img: '/Kangoo2a.png',
-      planes: [ 
-        { tipo: 'STEPWAY (Plan 80% en 120 Cuotas)', cuota: '$258.000', motor: '1.6 SCe 114cv', traccion: '4x2', caja: 'Manual 5v', imgPlan: '/Kango_Stepway.png' },
-        { tipo: 'EXPRESS 2A (Plan 75% en 120 Cuotas)', cuota: '$240.000', motor: '1.6 SCe 114cv', traccion: '4x2', caja: 'Manual 5v', imgPlan: '/Kangoo2a.png' },
-        { tipo: 'EXPRESS 5A (Plan 75% en 120 Cuotas)', cuota: '$275.000', motor: '1.6 SCe 114cv', traccion: '4x2', caja: 'Manual 5v', imgPlan: '/Kangoo5a.png' }
-      ]
+    {
+      nombre: 'KANGOO', imgVitrina: '/Kango_Stepway.png', segmento: 'Utilitario', origen: 'Argentina',
+      rating: 4.5, planRatio: '80/20', cuotasTotales: 120, valorMovil: 27200000,
+      variacionMensual: 2.9, cuota1Estimada: '$258.000',
+      adjudicacionAsegurada: { activa: true, cuota: 12 },
+      requisitos: 'DNI, comprobante de ingresos, monotributo o constancia de CUIT (uso comercial).',
+      diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'OROCH', img: '/Duster_Oroch.png', 
-      planes: [ { tipo: 'Plan 75% en 84 Cuotas', cuota: '$285.000', motor: '1.6 114cv o 1.3T 163cv', traccion: '4x2 y 4x4', caja: 'Manual 6v / Automática CVT', imgPlan: '/Duster_Oroch.png' } ]
+    {
+      nombre: 'OROCH', imgVitrina: '/Duster_Oroch.png', segmento: 'Pick-up Mediana', origen: 'Argentina',
+      rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 31900000,
+      variacionMensual: 3.4, cuota1Estimada: '$285.000',
+      adjudicacionAsegurada: { activa: true, cuota: 10 },
+      requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
+      diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
-    { 
-      nombre: 'MASTER', img: '/Master.png', 
-      planes: [ { tipo: 'Plan 75% en 84 Cuotas', cuota: '$587.000', motor: '2.3 dCi 130cv', traccion: '4x2', caja: 'Manual 6v', imgPlan: '/Master.png' } ]
-    }
+    {
+      nombre: 'MASTER', imgVitrina: '/Master.png', segmento: 'Furgón', origen: 'Argentina',
+      rating: 4.2, planRatio: '75/25', cuotasTotales: 84, valorMovil: 62300000,
+      variacionMensual: 2.7, cuota1Estimada: '$587.000',
+      adjudicacionAsegurada: { activa: true, cuota: 13 },
+      requisitos: 'DNI, comprobante de ingresos, monotributo o constancia de CUIT (uso comercial/flota).',
+      diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
+    },
   ];
 
   return (
@@ -381,29 +456,68 @@ export default function App() {
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-              {catalogoModelos.map((auto) => (
-                <div key={auto.nombre} className="bg-gray-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 overflow-hidden flex flex-col">
-                  <div className="bg-gray-50 p-5 flex items-center justify-center h-40">
-                    <img src={auto.img} alt={auto.nombre} className="max-h-full max-w-full object-contain" draggable={false} />
+              {vitrinaComercial.map((auto) => (
+                <motion.div
+                  key={auto.nombre}
+                  whileHover={{ y: -4 }}
+                  className="bg-gray-900/80 backdrop-blur-xl rounded-3xl shadow-2xl border border-white/10 overflow-hidden flex flex-col relative"
+                >
+                  {/* Badges superior derecho: relación de plan + cantidad de cuotas */}
+                  <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">
+                    <span className="bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">
+                      Plan: {auto.planRatio}
+                    </span>
+                    <span className="bg-black/70 text-white text-[10px] font-bold px-2.5 py-1 rounded-full backdrop-blur-md">
+                      {auto.cuotasTotales} Cuotas
+                    </span>
                   </div>
+
+                  <div className="bg-gradient-to-b from-gray-100 to-gray-300 p-6 flex items-center justify-center h-44">
+                    <img
+                      src={auto.imgVitrina}
+                      alt={auto.nombre}
+                      className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
+                      draggable={false}
+                    />
+                  </div>
+
                   <div className="p-5 flex flex-col gap-3 flex-grow">
                     <h3 className="text-lg font-black text-white">{auto.nombre}</h3>
-                    {auto.planes.map((plan) => (
-                      <div key={plan.tipo} className="bg-white/5 rounded-2xl p-3.5 border border-white/10">
-                        <p className="text-[11px] font-black text-gray-400 uppercase tracking-wide mb-1">{plan.tipo}</p>
-                        <p className="text-lg font-black text-white mb-2">Cuota 1 desde {plan.cuota}</p>
-                        <a
-                          href={`https://wa.me/5493815723178?text=${encodeURIComponent(`Hola! Quiero suscribirme a la ${auto.nombre} - ${plan.tipo} (Cuota 1 desde ${plan.cuota}). Soy cliente nuevo.`)}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 text-xs font-black py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5"
-                        >
-                          <MessageCircle className="h-3.5 w-3.5" /> Quiero Suscribirme por WhatsApp
-                        </a>
-                      </div>
-                    ))}
+                    <EstrellasRating valor={auto.rating} />
+
+                    <div className="grid grid-cols-2 gap-x-3 gap-y-1.5 text-[11px] bg-white/5 border border-white/10 rounded-xl p-3">
+                      <span className="text-gray-500 font-bold">Segmento</span>
+                      <span className="text-white font-bold text-right">{auto.segmento}</span>
+                      <span className="text-gray-500 font-bold">Valor Móvil</span>
+                      <span className="text-white font-bold text-right">${auto.valorMovil.toLocaleString('es-AR')}</span>
+                      <span className="text-gray-500 font-bold">Variación</span>
+                      <span className="text-green-400 font-bold text-right flex items-center justify-end gap-0.5">
+                        <TrendingUp className="h-3 w-3" /> +{auto.variacionMensual.toFixed(2)}%
+                      </span>
+                      <span className="text-gray-500 font-bold">Origen</span>
+                      <span className="text-white font-bold text-right">{auto.origen}</span>
+                    </div>
+
+                    <div className="flex flex-col gap-2 mt-auto pt-1">
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                        onClick={() => { setPlanDetalle(auto); setTabPlanDetalle('valores'); setSeccionExpandidaPlan(null); }}
+                        className="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 text-xs font-black py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <CheckCircle2 className="h-3.5 w-3.5" /> Más Información
+                      </motion.button>
+                      <a
+                        href={`https://wa.me/5493815723178?text=${encodeURIComponent(`Hola! Quiero consultar por la ${auto.nombre} - Plan ${auto.planRatio} en ${auto.cuotasTotales} cuotas (Cuota 1 desde ${auto.cuota1Estimada}). Soy cliente nuevo.`)}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="w-full bg-white/10 hover:bg-white/20 border border-white/10 text-white text-xs font-black py-2.5 rounded-xl transition-colors flex items-center justify-center gap-1.5"
+                      >
+                        <MessageCircle className="h-3.5 w-3.5 text-green-400" /> WhatsApp Consultar
+                      </a>
+                    </div>
                   </div>
-                </div>
+                </motion.div>
               ))}
             </div>
           </motion.div>
@@ -680,6 +794,234 @@ export default function App() {
                 >
                   <MessageCircle className="h-5 w-5" /> Consultar esta versión por WhatsApp
                 </a>
+              </div>
+            </div>
+          </motion.div>
+        </motion.div>
+      )}
+      </AnimatePresence>
+
+      {/* POP-UP DE DETALLE DE PLAN (vitrina comercial "Quiero mi 0km") */}
+      <AnimatePresence>
+      {planDetalle && (
+        <motion.div
+          key="modal-plan-detalle"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
+          className="fixed inset-0 bg-black/80 backdrop-blur-xl flex items-center justify-center p-4 z-[95]"
+          onClick={() => setPlanDetalle(null)}
+        >
+          <motion.div
+            initial={{ opacity: 0, scale: 0.94, y: 20 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.94, y: 20 }}
+            transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+            onClick={(e) => e.stopPropagation()}
+            className="bg-[#0B0F19] border border-yellow-500/20 rounded-3xl w-full max-w-4xl max-h-[92vh] overflow-y-auto shadow-2xl relative"
+          >
+            <motion.button
+              whileHover={{ scale: 1.15, rotate: 90 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={() => setPlanDetalle(null)}
+              className="absolute top-4 right-4 z-20 text-gray-400 hover:text-white transition-colors bg-black/40 rounded-full p-1.5"
+            >
+              <X className="h-5 w-5" />
+            </motion.button>
+
+            <div className="grid grid-cols-1 md:grid-cols-2">
+              {/* PANEL IZQUIERDO */}
+              <div className="p-6 sm:p-8 flex flex-col gap-5 border-b md:border-b-0 md:border-r border-white/10">
+                <div className="bg-gradient-to-b from-gray-100 to-gray-300 rounded-2xl h-56 flex items-center justify-center overflow-hidden">
+                  <img
+                    src={planDetalle.imgVitrina}
+                    alt={planDetalle.nombre}
+                    className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
+                    draggable={false}
+                  />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black text-white mb-1">{planDetalle.nombre}</h2>
+                  <EstrellasRating valor={planDetalle.rating} />
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <span className="bg-yellow-500 text-gray-900 text-[11px] font-black px-3 py-1.5 rounded-full">
+                    Plan: {planDetalle.planRatio}
+                  </span>
+                  <span className="bg-white/10 text-white text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/10">
+                    {planDetalle.cuotasTotales} Cuotas
+                  </span>
+                  <span className="bg-white/10 text-white text-[11px] font-bold px-3 py-1.5 rounded-full border border-white/10">
+                    {planDetalle.segmento}
+                  </span>
+                </div>
+                <a
+                  href={`https://wa.me/5493815723178?text=${encodeURIComponent(`Hola! Quiero consultar por la ${planDetalle.nombre} - Plan ${planDetalle.planRatio} en ${planDetalle.cuotasTotales} cuotas.`)}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 rounded-xl flex items-center justify-center gap-2 transition-colors mt-auto"
+                >
+                  <MessageCircle className="h-4 w-4" /> Contacto Rápido por WhatsApp
+                </a>
+              </div>
+
+              {/* PANEL DERECHO: pestañas interactivas */}
+              <div className="p-6 sm:p-8 flex flex-col gap-4">
+                <div className="flex gap-2 bg-white/5 rounded-xl p-1 border border-white/10">
+                  <button
+                    onClick={() => setTabPlanDetalle('valores')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-colors ${
+                      tabPlanDetalle === 'valores' ? 'bg-yellow-500 text-gray-900' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <DollarSign className="h-3.5 w-3.5" /> Valores
+                  </button>
+                  <button
+                    onClick={() => setTabPlanDetalle('detalle')}
+                    className={`flex-1 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-black transition-colors ${
+                      tabPlanDetalle === 'detalle' ? 'bg-yellow-500 text-gray-900' : 'text-gray-400 hover:text-white'
+                    }`}
+                  >
+                    <FileText className="h-3.5 w-3.5" /> Detalle
+                  </button>
+                </div>
+
+                <AnimatePresence mode="wait">
+                  {tabPlanDetalle === 'valores' ? (
+                    <motion.div
+                      key="tab-valores"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="space-y-3"
+                    >
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Valor Móvil Actual</p>
+                        <p className="text-2xl font-black text-white">${planDetalle.valorMovil.toLocaleString('es-AR')}</p>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4 flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Valor Mes Anterior</p>
+                          <p className="text-lg font-black text-gray-300">
+                            ${Math.round(planDetalle.valorMovil / (1 + planDetalle.variacionMensual / 100)).toLocaleString('es-AR')}
+                          </p>
+                        </div>
+                        <span className="flex items-center gap-1 text-green-400 font-black text-sm shrink-0">
+                          <TrendingUp className="h-4 w-4" /> +{planDetalle.variacionMensual.toFixed(2)}%
+                        </span>
+                      </div>
+                      <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-yellow-500/80 uppercase tracking-wide mb-1">Valor Estimado Cuota 1</p>
+                        <p className="text-2xl font-black text-yellow-400">{planDetalle.cuota1Estimada}</p>
+                      </div>
+                    </motion.div>
+                  ) : (
+                    <motion.div
+                      key="tab-detalle"
+                      initial={{ opacity: 0, y: 6 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: -6 }}
+                      transition={{ duration: 0.2 }}
+                      className="space-y-3"
+                    >
+                      <div className={`rounded-2xl p-4 border flex items-center gap-3 ${
+                        planDetalle.adjudicacionAsegurada.activa ? 'bg-green-500/10 border-green-500/30' : 'bg-white/5 border-white/10'
+                      }`}>
+                        <CheckCircle2 className={`h-6 w-6 shrink-0 ${planDetalle.adjudicacionAsegurada.activa ? 'text-green-400' : 'text-gray-500'}`} />
+                        <div>
+                          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide">Adjudicación Asegurada</p>
+                          <p className={`text-sm font-black ${planDetalle.adjudicacionAsegurada.activa ? 'text-green-400' : 'text-gray-400'}`}>
+                            {planDetalle.adjudicacionAsegurada.activa
+                              ? `Sí — Cuota ${planDetalle.adjudicacionAsegurada.cuota}`
+                              : 'No (sujeto a sorteo/licitación)'}
+                          </p>
+                        </div>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Requisitos</p>
+                        <p className="text-sm font-medium text-gray-300">{planDetalle.requisitos}</p>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Diferimiento</p>
+                        <p className="text-sm font-medium text-gray-300">{planDetalle.diferimiento}</p>
+                      </div>
+                      <div className="bg-white/5 border border-white/10 rounded-2xl p-4">
+                        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wide mb-1">Origen</p>
+                        <p className="text-sm font-medium text-gray-300 flex items-center gap-1.5">
+                          <MapPin className="h-3.5 w-3.5 text-yellow-500" /> {planDetalle.origen}
+                        </p>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Botones de acción inferiores */}
+                <div className="mt-2 pt-4 border-t border-white/10 space-y-2">
+                  <button
+                    onClick={() => setSeccionExpandidaPlan(seccionExpandidaPlan === 'retiro' ? null : 'retiro')}
+                    className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-black px-4 py-3 rounded-xl transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><FileText className="h-3.5 w-3.5 text-yellow-500" /> Gastos de Retiro</span>
+                    <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${seccionExpandidaPlan === 'retiro' ? '-rotate-90' : 'rotate-180'}`} />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {seccionExpandidaPlan === 'retiro' && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                        className="overflow-hidden"
+                      >
+                        <p className="text-xs text-gray-400 font-medium bg-white/5 rounded-xl p-3.5">
+                          Al momento de la entrega se abonan por separado los gastos de patentamiento, flete, gestoría y seguro de los primeros 30 días — varían según la provincia de radicación y no forman parte de la cuota del plan.
+                        </p>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <button
+                    onClick={() => setSeccionExpandidaPlan(seccionExpandidaPlan === 'cambio' ? null : 'cambio')}
+                    className="w-full flex items-center justify-between bg-white/5 hover:bg-white/10 border border-white/10 text-white text-xs font-black px-4 py-3 rounded-xl transition-colors"
+                  >
+                    <span className="flex items-center gap-2"><RefreshCw className="h-3.5 w-3.5 text-yellow-500" /> Cambio de Modelo</span>
+                    <ChevronLeft className={`h-3.5 w-3.5 transition-transform ${seccionExpandidaPlan === 'cambio' ? '-rotate-90' : 'rotate-180'}`} />
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {seccionExpandidaPlan === 'cambio' && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.25, ease: 'easeOut' }}
+                        className="overflow-hidden"
+                      >
+                        <div className="bg-white/5 rounded-xl p-3.5 space-y-2.5">
+                          <p className="text-xs text-gray-400 font-medium">
+                            Podés cambiar de gama antes de la adjudicación, ajustando la cuota al vehículo elegido. Consultá con un asesor para conocer las equivalencias disponibles.
+                          </p>
+                          <button
+                            onClick={() => { setPlanDetalle(null); setMostrarModelos(true); setFamiliaExpandida(null); setVersionFicha(null); }}
+                            className="w-full bg-white/10 hover:bg-white/20 text-white text-xs font-bold py-2.5 rounded-xl transition-colors"
+                          >
+                            Ver todos los modelos y versiones
+                          </button>
+                        </div>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+
+                  <a
+                    href={`https://wa.me/5493815723178?text=${encodeURIComponent(`Hola! Quiero suscribirme a la ${planDetalle.nombre} - Plan ${planDetalle.planRatio} en ${planDetalle.cuotasTotales} cuotas (Cuota 1 desde ${planDetalle.cuota1Estimada}). Soy cliente nuevo.`)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 font-black py-3.5 rounded-xl flex items-center justify-center gap-2 transition-colors shadow-lg mt-2"
+                  >
+                    🚀 Suscribirme por WhatsApp
+                  </a>
+                </div>
               </div>
             </div>
           </motion.div>
