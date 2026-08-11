@@ -1,6 +1,6 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package, DollarSign, FileText, RefreshCw, TrendingUp, CheckCircle2 } from 'lucide-react';
+import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package, DollarSign, FileText, RefreshCw, TrendingUp, CheckCircle2, Play, Pause } from 'lucide-react';
 import Header from './components/Header';
 import DashboardCliente from './components/DashboardCliente';
 import DashboardAdmin from './components/DashboardAdmin';
@@ -8,7 +8,7 @@ import LicitacionesCliente from './components/LicitacionesCliente';
 import ModalOfertaLicitacion from './components/ModalOfertaLicitacion';
 import { ClienteCartera } from './utils/excelParser';
 import { buscarClientePorConsultaConNube } from './lib/supabase';
-import { get360Cover, get360Frames } from './utils/assets';
+import { get360Frame, get360Frames } from './utils/assets';
 
 // Versiones reales por modelo, con foto, secuencia 360°, ficha técnica y plan propios.
 interface VersionVehiculo {
@@ -53,7 +53,9 @@ const version = (
 ): VersionVehiculo => ({
   nombre,
   familia,
-  imgPortada: get360Cover(nombre),
+  // Fotograma 8: todos los vehículos quedan orientados uniformemente hacia la
+  // derecha en la miniatura de la lista del Catálogo de Modelos.
+  imgPortada: get360Frame(nombre, 8),
   fotogramas: get360Frames(nombre),
   ...datos,
 });
@@ -99,12 +101,12 @@ const versionesPorModelo: Record<string, VersionVehiculo[]> = {
 
 const FAMILIAS_CATALOGO = ['KWID', 'KARDIAN', 'DUSTER', 'BOREAL', 'KANGOO', 'OROCH', 'MASTER', 'ARKANA', 'KOLEOS'];
 
-// Visor 360° por versión: giro automático estilo GIF + arrastre manual (mouse o táctil), usa la secuencia de fotogramas exacta.
+// Visor 360° por versión: sólo animación de rotación suave en bucle (fotogramas
+// 1 a 8) con un botón de Pausa/Play — sin arrastre manual ni textos adicionales.
 function VisorVersion360({ version, autoGirar = false }: { version: VersionVehiculo; autoGirar?: boolean }) {
   const total = version.fotogramas.length;
   const [rotacion, setRotacion] = useState(1);
   const [girando, setGirando] = useState(autoGirar);
-  const dragRef = useRef<{ startX: number; startRotacion: number } | null>(null);
   const imgSrc = total === 0 ? version.imgPortada : version.fotogramas[rotacion - 1];
 
   useEffect(() => {
@@ -115,37 +117,8 @@ function VisorVersion360({ version, autoGirar = false }: { version: VersionVehic
     return () => clearInterval(interval);
   }, [girando, total]);
 
-  const iniciarDrag = (clientX: number) => {
-    if (total === 0) return;
-    setGirando(false);
-    dragRef.current = { startX: clientX, startRotacion: rotacion };
-  };
-  const moverDrag = (clientX: number) => {
-    if (!dragRef.current || total === 0) return;
-    const delta = clientX - dragRef.current.startX;
-    if (Math.abs(delta) > 20) {
-      setRotacion((prev) => {
-        let next = prev + (delta > 0 ? 1 : -1);
-        if (next > total) next = 1;
-        if (next < 1) next = total;
-        return next;
-      });
-      dragRef.current.startX = clientX;
-    }
-  };
-  const terminarDrag = () => { dragRef.current = null; };
-
   return (
-    <div
-      className="h-64 sm:h-72 w-full overflow-hidden relative bg-gradient-to-b from-gray-50 to-gray-200 rounded-3xl border border-white/10 flex items-center justify-center cursor-ew-resize select-none touch-pan-y"
-      onMouseDown={(e) => iniciarDrag(e.clientX)}
-      onMouseMove={(e) => moverDrag(e.clientX)}
-      onMouseUp={terminarDrag}
-      onMouseLeave={terminarDrag}
-      onTouchStart={(e) => iniciarDrag(e.touches[0].clientX)}
-      onTouchMove={(e) => moverDrag(e.touches[0].clientX)}
-      onTouchEnd={terminarDrag}
-    >
+    <div className="h-64 sm:h-72 w-full overflow-hidden relative bg-gradient-to-b from-gray-50 to-gray-200 rounded-3xl border border-white/10 flex items-center justify-center">
       <img
         src={imgSrc}
         alt={version.nombre}
@@ -153,9 +126,15 @@ function VisorVersion360({ version, autoGirar = false }: { version: VersionVehic
         className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
       />
       {total > 0 && (
-        <div className="absolute bottom-3 bg-black/70 text-white text-[10px] font-bold px-3 py-1.5 rounded-full backdrop-blur-md">
-          Giro 360° activado • Arrastrá para girar
-        </div>
+        <motion.button
+          whileHover={{ scale: 1.08 }}
+          whileTap={{ scale: 0.94 }}
+          onClick={() => setGirando((g) => !g)}
+          aria-label={girando ? 'Pausar rotación' : 'Reanudar rotación'}
+          className="absolute bottom-3 right-3 bg-black/70 hover:bg-black/80 text-white p-2.5 rounded-full backdrop-blur-md transition-colors"
+        >
+          {girando ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
+        </motion.button>
       )}
     </div>
   );
@@ -245,9 +224,11 @@ export default function App() {
   // completa (plan principal, rating, segmento, valores) que alimenta tanto la
   // tarjeta de la vitrina como el pop-up de detalle. Los "Cuota 1" reutilizan las
   // mismas cifras que ya se muestran en el resto de la app (Header > Modelos).
+  // imgVitrina usa el fotograma 2 (get360Frame) de la versión principal de cada
+  // modelo, en vez de una imagen genérica sin relación con el visor 360°.
   const vitrinaComercial: PlanVitrina[] = [
     {
-      nombre: 'KWID', imgVitrina: '/Kwid.png', segmento: 'SUV Urbano', origen: 'Brasil',
+      nombre: 'KWID', imgVitrina: get360Frame('Kwid Bitono', 2), segmento: 'SUV Urbano', origen: 'Brasil',
       rating: 4.3, planRatio: '100/0', cuotasTotales: 120, valorMovil: 23100000,
       variacionMensual: 2.4, cuota1Estimada: '$231.000',
       adjudicacionAsegurada: { activa: false, cuota: 0 },
@@ -255,7 +236,7 @@ export default function App() {
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'KARDIAN', imgVitrina: '/Kardian.png', segmento: 'SUV Compacta', origen: 'Brasil',
+      nombre: 'KARDIAN', imgVitrina: get360Frame('Kardian Evolution 156 MT', 2), segmento: 'SUV Compacta', origen: 'Brasil',
       rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 25550000,
       variacionMensual: 2.8, cuota1Estimada: '$245.500',
       adjudicacionAsegurada: { activa: true, cuota: 9 },
@@ -263,7 +244,7 @@ export default function App() {
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'DUSTER', imgVitrina: '/Duster.png', segmento: 'SUV', origen: 'Argentina',
+      nombre: 'DUSTER', imgVitrina: get360Frame('Duster Intens MT', 2), segmento: 'SUV', origen: 'Argentina',
       rating: 4.7, planRatio: '75/25', cuotasTotales: 84, valorMovil: 32480000,
       variacionMensual: 3.1, cuota1Estimada: '$279.000',
       adjudicacionAsegurada: { activa: true, cuota: 10 },
@@ -271,7 +252,7 @@ export default function App() {
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'BOREAL', imgVitrina: '/Boreal.png', segmento: 'Sedán Premium', origen: 'Brasil',
+      nombre: 'BOREAL', imgVitrina: get360Frame('Boreal Iconic', 2), segmento: 'Sedán Premium', origen: 'Brasil',
       rating: 4.4, planRatio: '75/25', cuotasTotales: 84, valorMovil: 48900000,
       variacionMensual: 2.3, cuota1Estimada: '$457.000',
       adjudicacionAsegurada: { activa: true, cuota: 11 },
@@ -279,7 +260,7 @@ export default function App() {
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'KANGOO', imgVitrina: '/Kango_Stepway.png', segmento: 'Utilitario', origen: 'Argentina',
+      nombre: 'KANGOO', imgVitrina: get360Frame('Kangoo Stepway', 2), segmento: 'Utilitario', origen: 'Argentina',
       rating: 4.5, planRatio: '80/20', cuotasTotales: 120, valorMovil: 27200000,
       variacionMensual: 2.9, cuota1Estimada: '$258.000',
       adjudicacionAsegurada: { activa: true, cuota: 12 },
@@ -287,7 +268,7 @@ export default function App() {
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'OROCH', imgVitrina: '/Duster_Oroch.png', segmento: 'Pick-up Mediana', origen: 'Argentina',
+      nombre: 'OROCH', imgVitrina: get360Frame('Oroch Emotion', 2), segmento: 'Pick-up Mediana', origen: 'Argentina',
       rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 31900000,
       variacionMensual: 3.4, cuota1Estimada: '$285.000',
       adjudicacionAsegurada: { activa: true, cuota: 10 },
@@ -295,7 +276,7 @@ export default function App() {
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'MASTER', imgVitrina: '/Master.png', segmento: 'Furgón', origen: 'Argentina',
+      nombre: 'MASTER', imgVitrina: get360Frame('Master', 2), segmento: 'Furgón', origen: 'Argentina',
       rating: 4.2, planRatio: '75/25', cuotasTotales: 84, valorMovil: 62300000,
       variacionMensual: 2.7, cuota1Estimada: '$587.000',
       adjudicacionAsegurada: { activa: true, cuota: 13 },

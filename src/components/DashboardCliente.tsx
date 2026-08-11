@@ -54,10 +54,9 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
   }, []);
 
   // VISOR 360° CON GIRO AUTOMÁTICO (8 fotogramas universales, ver src/utils/assets.ts)
+  // Sólo animación en bucle + botón de Pausa/Play — sin arrastre manual.
   const [rotacion, setRotacion] = useState(1);
   const [autoGirar, setAutoGirar] = useState(true);
-  const [isDragging, setIsDragging] = useState(false);
-  const [startX, setStartX] = useState(0);
 
   const grupoHabilitadoLicitacion = true; 
 
@@ -75,36 +74,12 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
 
   // Giro automático estilo GIF
   useEffect(() => {
-    if (!autoGirar || isDragging) return;
+    if (!autoGirar) return;
     const interval = setInterval(() => {
       setRotacion((prev) => (prev >= TOTAL_FOTOS_360 ? 1 : prev + 1));
     }, 1500);
     return () => clearInterval(interval);
-  }, [autoGirar, isDragging]);
-
-  const handleMouseDown = (e: React.MouseEvent | React.TouchEvent) => {
-    setIsDragging(true);
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    setStartX(clientX);
-  };
-
-  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
-    if (!isDragging) return;
-    const clientX = 'touches' in e ? e.touches[0].clientX : e.clientX;
-    const diff = clientX - startX;
-    
-    if (Math.abs(diff) > 20) {
-      setRotacion(prev => {
-        let next = prev + (diff > 0 ? 1 : -1);
-        if (next > TOTAL_FOTOS_360) next = 1;
-        if (next < 1) next = TOTAL_FOTOS_360;
-        return next;
-      });
-      setStartX(clientX);
-    }
-  };
-
-  const handleMouseUp = () => setIsDragging(false);
+  }, [autoGirar]);
 
   // ROMBITO AI — Horarios de Atención (Lun-Vie 09-13 y 16-20, Sáb 09-13)
   const dentroDeHorario = (): boolean => {
@@ -381,16 +356,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
                 {autoGirar ? 'Pausar Giro' : 'Auto Giro'}
               </motion.button>
             </div>
-            <div
-              className="w-full max-w-lg mt-8 relative group flex flex-col items-center cursor-ew-resize select-none touch-pan-y"
-              onMouseDown={handleMouseDown}
-              onMouseMove={handleMouseMove}
-              onMouseUp={handleMouseUp}
-              onMouseLeave={handleMouseUp}
-              onTouchStart={handleMouseDown}
-              onTouchMove={handleMouseMove}
-              onTouchEnd={handleMouseUp}
-            >
+            <div className="w-full max-w-lg mt-8 relative flex flex-col items-center">
               <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl bg-gradient-to-b from-gray-50 to-gray-200 border border-white/10">
                 <img
                   src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
@@ -405,9 +371,6 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
                     }
                   }}
                 />
-              </div>
-              <div className="absolute -bottom-6 bg-black/70 text-white text-[10px] font-bold px-4 py-1.5 rounded-full backdrop-blur-md opacity-70 group-hover:opacity-100 transition-opacity">
-                Giro automático activado • Arrastrá para controlar libremente
               </div>
             </div>
           </motion.div>
