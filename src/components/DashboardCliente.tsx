@@ -349,7 +349,8 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden h-[420px]"
           >
             <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-            <div className="relative z-10 h-full p-6 sm:p-8 flex flex-col items-center justify-center">
+            {/* Sin z-index: mantiene el mix-blend-multiply del auto viendo la foto de fondo */}
+            <div className="relative h-full p-6 sm:p-8 flex flex-col items-center justify-center">
               <div className="absolute top-6 left-6 right-6 flex justify-between items-center">
                 <h2 className="text-xl font-black text-white">Mi Vehículo (Kardian 360°)</h2>
                 <motion.button

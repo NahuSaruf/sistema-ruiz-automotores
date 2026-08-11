@@ -461,7 +461,10 @@ export default function App() {
                   className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl shadow-2xl border border-white/10 overflow-hidden relative"
                 >
                   <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-                  <div className="relative z-10 flex flex-col h-full">
+                  {/* Sin z-index acá a propósito: si este wrapper creara su propio contexto de
+                      apilado, la imagen de adentro (mix-blend-multiply) dejaría de "ver" la
+                      foto de fondo de la tarjeta y el blanco se volvería a mostrar sólido. */}
+                  <div className="relative flex flex-col h-full">
                     {/* Badges superior derecho: relación de plan + cantidad de cuotas */}
                     <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">
                       <span className="bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">
@@ -737,7 +740,8 @@ export default function App() {
               {/* Contenedor del Visor 360° — foto de la Casa Central (Av. Perón) de fondo */}
               <div className="flex-1 w-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl relative overflow-hidden p-3">
                 <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-                <div className="relative z-10">
+                {/* Sin z-index: mantiene el mix-blend-multiply de adentro viendo la foto de fondo */}
+                <div className="relative">
                   <VisorVersion360 key={versionFicha.nombre} version={versionFicha} autoGirar />
                 </div>
               </div>
