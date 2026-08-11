@@ -1,0 +1,8 @@
+{
+  "functions": {
+    "api/cca-stats.ts": {
+      "memory": 1536,
+      "maxDuration": 30
+    }
+  }
+}

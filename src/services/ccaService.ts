@@ -1,12 +1,13 @@
 // ==== SINCRONIZACIÓN CON CCA (https://cca.com.ar/estadisticas/) ====
 //
-// Intenta leer en vivo el Total de Suscripciones, la Variación Mensual y la
-// Cuota de Renault desde el HTML público de cca.com.ar. Esto es un intento
-// honesto, no garantizado: el dominio probablemente no envía cabeceras CORS
-// habilitando este origen (el fetch fallará directo desde el navegador), y
-// aunque respondiera, esa página renderiza sus cifras vía JavaScript del lado
-// del cliente — el HTML crudo que devuelve fetch() no las contiene. Por eso
-// cada fallo devuelve un motivo específico en vez de simular un éxito.
+// El navegador no puede leer cca.com.ar directo: ese dominio no envía cabeceras
+// CORS para otros orígenes, y aunque las enviara, esa página renderiza sus cifras
+// vía JavaScript del lado del cliente (el HTML crudo no las contiene). Por eso el
+// scraping real vive en el servidor: api/cca-stats.ts abre la página con un Chromium
+// headless (Puppeteer), espera a que termine de pintar los números y los lee del DOM
+// ya renderizado. Esta función sólo llama a ese endpoint propio (mismo origen, sin
+// problema de CORS) y nunca simula un éxito: cualquier falla del proxy o del fetch
+// devuelve un motivo específico, y el llamador decide si mostrar el último cacheado.
 
 export interface CcaStats {
   totalSuscripciones: number;
@@ -21,16 +22,11 @@ export interface ResultadoSincronizacionCCA {
   error?: string;
 }
 
-const CCA_URL = 'https://cca.com.ar/estadisticas/';
+const CCA_PROXY_ENDPOINT = '/api/cca-stats';
 const CCA_CACHE_KEY = 'cca_stats_cache';
-const TIMEOUT_MS = 8000;
-
-const REGEX_TOTAL = /([\d.,]{4,})\s*(?:suscripciones|subscripciones)/i;
-const REGEX_VARIACION = /variaci[oó]n[^%+\-\d]{0,20}([+-]?[\d.,]+)\s*%/i;
-const REGEX_RENAULT = /Renault[^%\d]{0,40}([\d.,]+)\s*%/i;
-
-const numeroDesdeTexto = (texto: string): number =>
-  Number(texto.replace(/\./g, '').replace(',', '.'));
+// El proxy renderiza una página real con Chromium headless (más lento que un fetch
+// simple): le damos más margen que a un pedido HTTP común.
+const TIMEOUT_MS = 25000;
 
 export const cargarCacheCCA = (): CcaStats | null => {
   try {
@@ -45,41 +41,28 @@ const guardarCacheCCA = (datos: CcaStats): void => {
   localStorage.setItem(CCA_CACHE_KEY, JSON.stringify(datos));
 };
 
-// Intenta sincronizar en vivo. Nunca lanza: si falla por cualquier motivo
-// (CORS, timeout, datos no encontrados en el HTML) devuelve ok:false con un
-// error explicativo, y el llamador decide si mostrar el último dato cacheado.
+// Intenta sincronizar en vivo a través del proxy propio. Nunca lanza: si falla por
+// cualquier motivo (timeout, proxy caído, CCA cambió de diseño) devuelve ok:false
+// con un error explicativo, y el llamador decide si mostrar el último cacheado.
 export const fetchCCAStats = async (): Promise<ResultadoSincronizacionCCA> => {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
 
   try {
-    const respuesta = await fetch(CCA_URL, { mode: 'cors', signal: controller.signal });
+    const respuesta = await fetch(CCA_PROXY_ENDPOINT, { signal: controller.signal });
     clearTimeout(timeoutId);
 
-    if (!respuesta.ok) {
-      return { ok: false, datos: null, error: `cca.com.ar respondió con error (HTTP ${respuesta.status}).` };
-    }
+    const cuerpo = await respuesta.json().catch(() => null);
 
-    const html = await respuesta.text();
-    const totalMatch = html.match(REGEX_TOTAL);
-    const variacionMatch = html.match(REGEX_VARIACION);
-    const renaultMatch = html.match(REGEX_RENAULT);
-
-    if (!totalMatch || !variacionMatch || !renaultMatch) {
+    if (!respuesta.ok || !cuerpo?.ok || !cuerpo?.datos) {
       return {
         ok: false,
         datos: null,
-        error: 'cca.com.ar renderiza estas cifras vía JavaScript del lado del cliente: el HTML estático recibido no las contiene, así que no se pueden leer con un fetch simple.',
+        error: cuerpo?.error || `El servicio de sincronización respondió con error (HTTP ${respuesta.status}).`,
       };
     }
 
-    const datos: CcaStats = {
-      totalSuscripciones: numeroDesdeTexto(totalMatch[1]),
-      variacionMensual: numeroDesdeTexto(variacionMatch[1]),
-      cuotaRenault: numeroDesdeTexto(renaultMatch[1]),
-      fechaSincronizacion: new Date().toISOString(),
-    };
-
+    const datos = cuerpo.datos as CcaStats;
     guardarCacheCCA(datos);
     return { ok: true, datos };
   } catch (err) {
@@ -89,8 +72,8 @@ export const fetchCCAStats = async (): Promise<ResultadoSincronizacionCCA> => {
       ok: false,
       datos: null,
       error: fueTimeout
-        ? 'Se agotó el tiempo de espera al contactar cca.com.ar.'
-        : 'No se pudo conectar con cca.com.ar (probablemente bloqueado por CORS, ya que el sitio no expone una API pública pensada para consumirse desde otro dominio).',
+        ? 'Se agotó el tiempo de espera sincronizando con CCA (el renderizado en el servidor tardó demasiado).'
+        : 'No se pudo contactar al servicio de sincronización con CCA.',
     };
   }
 };
