@@ -50,6 +50,14 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const texto = await page.evaluate(() => document.body.innerText);
 
+    // Modo debug temporal (?debug=1): devuelve el texto renderizado crudo para poder
+    // ajustar los patrones de búsqueda contra el contenido real de la página. Sacar
+    // una vez que las regex de abajo estén afinadas.
+    if (req.query.debug === '1') {
+      res.status(200).json({ ok: true, debug: true, texto });
+      return;
+    }
+
     const totalMatch = texto.match(REGEX_TOTAL);
     const variacionMatch = texto.match(REGEX_VARIACION);
     const renaultMatch = texto.match(REGEX_RENAULT);
