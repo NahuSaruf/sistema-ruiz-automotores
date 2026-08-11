@@ -9,7 +9,7 @@ export interface CondicionesComerciales {
 
 export const CONDICIONES_DEFAULT: CondicionesComerciales = {
   tituloPromo: 'Conocé la Nueva Gama Renault en Plan Rombo',
-  descripcionPromo: 'Renová tu plan o suscribite a los nuevos Kardian, Boreal y Kangoo Stepway con cuotas bonificadas.',
+  descripcionPromo: 'Renová tu plan o suscribite a los nuevos Kardian, Boreal y Kangoo Express 5A con cuotas bonificadas.',
   planDestacado: 'Kardian 75%',
   cuotaDestacada: '$184.500',
 };

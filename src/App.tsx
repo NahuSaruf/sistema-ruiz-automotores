@@ -82,7 +82,6 @@ const versionesPorModelo: Record<string, VersionVehiculo[]> = {
   KANGOO: [
     version('Kangoo Express 2A', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: 'Hasta 800 kg de carga', equipamiento: 'Mampara de carga, cierre centralizado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$240.000' }),
     version('Kangoo Express 5A', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13 km/l', baul: '5 plazas + espacio de carga', equipamiento: '5 plazas, aire acondicionado', tipoPlan: 'Plan 75/25 en 120 Cuotas', cuota: '$275.000' }),
-    version('Kangoo Stepway', 'KANGOO', { motor: '1.6 SCe 114cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '13.5 km/l', baul: '3 plazas + baúl utilitario', equipamiento: 'Barras de techo, paragolpes protegidos', tipoPlan: 'Plan 80/20 en 120 Cuotas', cuota: '$258.000' }),
   ],
   OROCH: [
     version('Oroch Emotion', 'OROCH', { motor: '1.6 SCe 114cv', transmision: 'Manual 6v', traccion: '4x2', consumo: '12.8 km/l', baul: 'Caja de carga 650 kg', equipamiento: 'Barras antivuelco, paragolpes protegidos', tipoPlan: 'Plan 75/25 en 84 Cuotas', cuota: '$285.000' }),
@@ -118,7 +117,7 @@ function VisorVersion360({ version, autoGirar = false }: { version: VersionVehic
   }, [girando, total]);
 
   return (
-    <div className="h-64 sm:h-72 w-full overflow-hidden relative bg-gradient-to-b from-gray-50 to-gray-200 rounded-3xl border border-white/10 flex items-center justify-center">
+    <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl border border-white/10 flex items-center justify-center">
       <img
         src={imgSrc}
         alt={version.nombre}
@@ -260,9 +259,9 @@ export default function App() {
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
-      nombre: 'KANGOO', imgVitrina: get360Frame('Kangoo Stepway', 2), segmento: 'Utilitario', origen: 'Argentina',
-      rating: 4.5, planRatio: '80/20', cuotasTotales: 120, valorMovil: 27200000,
-      variacionMensual: 2.9, cuota1Estimada: '$258.000',
+      nombre: 'KANGOO', imgVitrina: get360Frame('Kangoo Express 5A', 2), segmento: 'Utilitario', origen: 'Argentina',
+      rating: 4.5, planRatio: '75/25', cuotasTotales: 120, valorMovil: 27200000,
+      variacionMensual: 2.9, cuota1Estimada: '$275.000',
       adjudicacionAsegurada: { activa: true, cuota: 12 },
       requisitos: 'DNI, comprobante de ingresos, monotributo o constancia de CUIT (uso comercial).',
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
@@ -473,7 +472,7 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div className="bg-gradient-to-b from-gray-100 to-gray-300 w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
+                    <div className="w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
                       <img
                         src={auto.imgVitrina}
                         alt={auto.nombre}
@@ -760,32 +759,32 @@ export default function App() {
                 <div>
                   <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-2">Ficha Técnica</p>
                   <div className="grid grid-cols-2 gap-3">
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Settings className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Motor</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.motor}</p>
                     </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Gauge className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Transmisión</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.transmision}</p>
                     </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Activity className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Tracción</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.traccion}</p>
                     </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Fuel className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Consumo</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.consumo}</p>
                     </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Package className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Baúl</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.baul}</p>
                     </div>
-                    <div className="bg-white/5 border border-white/10 rounded-xl p-3">
+                    <div className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
                       <Star className="h-4 w-4 text-yellow-500 mb-1" />
                       <p className="text-[10px] font-bold text-gray-400 uppercase">Equipamiento Clave</p>
                       <p className="text-sm font-bold text-white leading-tight">{versionFicha.equipamiento}</p>
@@ -839,7 +838,7 @@ export default function App() {
             <div className="grid grid-cols-1 md:grid-cols-2">
               {/* PANEL IZQUIERDO */}
               <div className="p-6 sm:p-8 flex flex-col gap-5 border-b md:border-b-0 md:border-r border-white/10">
-                <div className="bg-gradient-to-b from-gray-100 to-gray-300 rounded-2xl w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
+                <div className="rounded-2xl w-full h-48 sm:h-56 flex items-center justify-center p-3 relative overflow-hidden">
                   <img
                     src={planDetalle.imgVitrina}
                     alt={planDetalle.nombre}

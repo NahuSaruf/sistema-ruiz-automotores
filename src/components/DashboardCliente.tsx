@@ -363,7 +363,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
                 </motion.button>
               </div>
               <div className="w-full max-w-lg mt-8 relative flex flex-col items-center">
-                <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl bg-gradient-to-b from-gray-50 to-gray-200 border border-white/10">
+                <div className="h-64 sm:h-72 w-full overflow-hidden relative rounded-3xl border border-white/10">
                   <img
                     src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
                     alt="Auto 360"
@@ -382,26 +382,24 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             </div>
           </motion.div>
 
-          {/* CARACTERÍSTICAS DESTACADAS DEL VEHÍCULO */}
+          {/* CARACTERÍSTICAS DESTACADAS DEL VEHÍCULO — fondo oscuro sólido (sin foto) para
+              máxima legibilidad de la ficha técnica */}
           <motion.div
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.4, delay: 0.17, ease: 'easeOut' }}
-            className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden"
+            className="bg-gray-950 rounded-2xl p-6 shadow-2xl border border-white/10"
           >
-            <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-            <div className="relative z-10 p-6">
-              <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Ficha Técnica</p>
-              <p className="text-sm font-bold text-white mb-3">{KARDIAN_VERSION_NOMBRE}</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {CARACTERISTICAS_KARDIAN.map(({ Icono, label, valor }) => (
-                  <div key={label} className="bg-white/5 border border-white/10 rounded-xl p-3">
-                    <Icono className="h-4 w-4 text-yellow-500 mb-1" />
-                    <p className="text-[10px] font-bold text-gray-400 uppercase">{label}</p>
-                    <p className="text-xs font-bold text-white leading-tight">{valor}</p>
-                  </div>
-                ))}
-              </div>
+            <p className="text-xs font-black text-gray-400 uppercase tracking-wider mb-1">Ficha Técnica</p>
+            <p className="text-sm font-bold text-white mb-3">{KARDIAN_VERSION_NOMBRE}</p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              {CARACTERISTICAS_KARDIAN.map(({ Icono, label, valor }) => (
+                <div key={label} className="bg-gray-800/80 border border-white/10 rounded-xl p-3">
+                  <Icono className="h-4 w-4 text-yellow-500 mb-1" />
+                  <p className="text-[10px] font-bold text-gray-400 uppercase">{label}</p>
+                  <p className="text-xs font-bold text-white leading-tight">{valor}</p>
+                </div>
+              ))}
             </div>
           </motion.div>
 
