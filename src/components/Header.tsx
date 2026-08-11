@@ -29,7 +29,7 @@ export default function Header({ onUserClick, onHomeClick, onClienteClick, onLic
         <img
           src="/logo Ruiz_png.png"
           alt="Ruiz Automotores"
-          className="h-12 sm:h-14 max-h-14 w-auto object-contain drop-shadow-[0_0_12px_rgba(255,204,0,0.5)]"
+          className="h-12 sm:h-16 md:h-20 max-h-20 w-auto object-contain drop-shadow-[0_0_12px_rgba(255,204,0,0.5)]"
         />
       </motion.div>
       
