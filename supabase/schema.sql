@@ -38,6 +38,48 @@ create table if not exists adjudicados (
   updated_at timestamptz not null default now()
 );
 
+-- ============================================================
+-- TABLA: grupos_invitados
+-- Reporte real "Grupos Invitados Acto <N>" (Panel Admin -> pestaña "Licitaciones"):
+-- qué Grupo y Orden está invitado a licitar en qué acto. Reemplaza el flag
+-- `grupoHabilitadoLicitacion` que antes estaba hardcodeado en el panel del
+-- cliente — si su grupo_orden aparece acá, está habilitado; si no, no.
+-- Clave primaria compuesta (acto, grupo_orden) porque el mismo grupo puede
+-- aparecer invitado en distintos actos a lo largo del tiempo.
+-- ============================================================
+create table if not exists grupos_invitados (
+  acto text not null,
+  grupo_orden text not null,
+  fecha_web text default '',
+  titular text default '',
+  porcentaje_financia text default '',
+  modelo text default '',
+  oferta_comercial text default '',
+  ultima_cuota text default '',
+  cuota_licitacion text default '',
+  updated_at timestamptz not null default now(),
+  primary key (acto, grupo_orden)
+);
+
+create index if not exists idx_grupos_invitados_grupo_orden on grupos_invitados (grupo_orden);
+
+-- ============================================================
+-- TABLA: condiciones_comerciales
+-- Fila única (id=1) con el catálogo comercial completo — precios de lista, cuota 1,
+-- modalidad/plazo, ficha técnica y bonificación/vigencia de cada uno de los 9
+-- modelos, más el título/descripción de la promo del mes — serializado como JSON en
+-- `data`. Es la misma configuración que localStorage guarda bajo la clave
+-- "condiciones_comerciales_ruiz" (ver src/utils/condicionesComerciales.ts): esta
+-- tabla es sólo el respaldo en la nube, para que ese catálogo se sincronice entre
+-- dispositivos en vez de vivir sólo en el navegador de quien lo cargó.
+-- ============================================================
+create table if not exists condiciones_comerciales (
+  id int primary key default 1,
+  data jsonb not null,
+  updated_at timestamptz not null default now(),
+  constraint condiciones_comerciales_fila_unica check (id = 1)
+);
+
 -- Mantiene "updated_at" al día en cada upsert, sin que el código de la app tenga
 -- que preocuparse por eso.
 create or replace function set_updated_at()
@@ -58,45 +100,206 @@ create trigger trg_adjudicados_updated_at
   before update on adjudicados
   for each row execute function set_updated_at();
 
+drop trigger if exists trg_grupos_invitados_updated_at on grupos_invitados;
+create trigger trg_grupos_invitados_updated_at
+  before update on grupos_invitados
+  for each row execute function set_updated_at();
+
+drop trigger if exists trg_condiciones_comerciales_updated_at on condiciones_comerciales;
+create trigger trg_condiciones_comerciales_updated_at
+  before update on condiciones_comerciales
+  for each row execute function set_updated_at();
+
 -- ============================================================
--- SEGURIDAD (RLS)
+-- TABLA: admins
+-- Lista blanca de usuarios de Supabase Auth con rol de Administrador de la
+-- agencia. Vacía por defecto: nadie puede escribir en cartera_clientes ni
+-- adjudicados hasta que se registre acá el UID de una cuenta real.
+--
+-- Cómo dar de alta al primer administrador:
+--   1. Creá la cuenta desde el Dashboard de Supabase: Authentication -> Users ->
+--      Add user (o dejá que se registre y confirmá el email), con el email y
+--      contraseña que va a usar para entrar al Panel Admin del sitio.
+--   2. Copiá su UID (columna "User UID" en esa misma pantalla) y ejecutá:
+--        insert into admins (user_id, email) values ('<UID-copiado>', '<email>');
+-- ============================================================
+create table if not exists admins (
+  user_id uuid primary key references auth.users (id) on delete cascade,
+  email text default '',
+  created_at timestamptz not null default now()
+);
+
+alter table admins enable row level security;
+
+-- Devuelve true si el usuario autenticado actual (auth.uid()) es Administrador
+-- de la agencia. `security definer` + `search_path` fijo para que la función
+-- pueda leer `admins` sin importar las políticas RLS del que la llama (evita el
+-- problema del huevo y la gallina con la policy de abajo), y sin quedar expuesta
+-- a un search_path hostil.
+create or replace function is_admin_ruiz()
+returns boolean
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select exists (
+    select 1 from admins where user_id = auth.uid()
+  );
+$$;
+
+-- Sólo un administrador ya autenticado puede ver la lista blanca (por ejemplo,
+-- para que el panel muestre quién más tiene acceso); nadie puede escribirla
+-- desde el cliente — altas/bajas de administradores se hacen a mano por SQL.
+drop policy if exists "admins_read_self_or_admin" on admins;
+drop policy if exists "admins_read_admin_only" on admins;
+create policy "admins_read_admin_only"
+  on admins
+  for select
+  to authenticated
+  using (is_admin_ruiz());
+
+-- ============================================================
+-- SEGURIDAD (RLS) — cartera_clientes, adjudicados, grupos_invitados y condiciones_comerciales
 --
 -- ⚠️ IMPORTANTE — leé esto antes de usar datos reales de clientes:
 -- Esta app es 100% client-side: el navegador del admin y el del cliente hablan
 -- directo con Supabase usando la clave "anon" pública (VITE_SUPABASE_ANON_KEY),
--- que queda visible en el bundle JS de la web. No hay una sesión de usuario real
--- detrás del login "ADMIN" del panel — es solo una comparación de texto en el
--- frontend, no una autenticación real de Supabase.
+-- que queda visible en el bundle JS de la web.
 --
--- Las políticas de abajo habilitan RLS pero permiten lectura y escritura anónima
--- completa en ambas tablas, para que el prototipo funcione end-to-end tal como
--- está pedido. Eso significa que CUALQUIERA que tenga la URL y la anon key del
--- proyecto (visibles en el código fuente de la página) puede leer y modificar
--- TODOS los DNI, teléfonos, domicilios y emails de la tabla.
+-- LECTURA: sigue siendo anónima y abierta (`using (true)` para anon), porque el
+-- login de autoservicio del cliente (buscar su plan por DNI o Grupo y Orden en
+-- App.tsx) no tiene su propia autenticación y depende de poder leer esta tabla
+-- desde el navegador sin iniciar sesión. Eso significa que CUALQUIERA que tenga
+-- la URL y la anon key del proyecto (visibles en el código fuente de la página)
+-- puede leer todos los DNI, teléfonos, domicilios y emails de la tabla, aunque
+-- ya no pueda modificarlos. Antes de cargar datos reales, lo ideal es reemplazar
+-- este SELECT abierto por una Postgres function `security definer` que reciba el
+-- DNI/Grupo y Orden puntual y devuelva sólo esa fila (ver nota original más abajo).
 --
--- Antes de cargar clientes reales en este esquema, como mínimo:
---   1. Agregá autenticación real (Supabase Auth) para el Panel Admin, y restringí
---      los INSERT/UPDATE/DELETE a usuarios autenticados con ese rol.
---   2. Para el login del cliente, reemplazá el SELECT abierto por una Postgres
---      function (RPC) con `security definer` que reciba el DNI/Grupo y Orden y
---      devuelva sólo esa fila, en vez de exponer la tabla completa.
+-- ESCRITURA: ahora requiere una sesión real de Supabase Auth (`to authenticated`)
+-- Y que ese usuario figure en la tabla `admins` (`is_admin_ruiz()`). Un usuario
+-- autenticado que no sea administrador no puede insertar/actualizar/borrar nada.
 -- ============================================================
 
 alter table cartera_clientes enable row level security;
 alter table adjudicados enable row level security;
+alter table grupos_invitados enable row level security;
+alter table condiciones_comerciales enable row level security;
 
 drop policy if exists "cartera_clientes_anon_all" on cartera_clientes;
-create policy "cartera_clientes_anon_all"
+
+drop policy if exists "cartera_clientes_read_all" on cartera_clientes;
+create policy "cartera_clientes_read_all"
   on cartera_clientes
-  for all
-  to anon
-  using (true)
-  with check (true);
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "cartera_clientes_write_admin" on cartera_clientes;
+create policy "cartera_clientes_write_admin"
+  on cartera_clientes
+  for insert
+  to authenticated
+  with check (is_admin_ruiz());
+
+drop policy if exists "cartera_clientes_update_admin" on cartera_clientes;
+create policy "cartera_clientes_update_admin"
+  on cartera_clientes
+  for update
+  to authenticated
+  using (is_admin_ruiz())
+  with check (is_admin_ruiz());
+
+drop policy if exists "cartera_clientes_delete_admin" on cartera_clientes;
+create policy "cartera_clientes_delete_admin"
+  on cartera_clientes
+  for delete
+  to authenticated
+  using (is_admin_ruiz());
 
 drop policy if exists "adjudicados_anon_all" on adjudicados;
-create policy "adjudicados_anon_all"
+
+drop policy if exists "adjudicados_read_all" on adjudicados;
+create policy "adjudicados_read_all"
   on adjudicados
-  for all
-  to anon
-  using (true)
-  with check (true);
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "adjudicados_write_admin" on adjudicados;
+create policy "adjudicados_write_admin"
+  on adjudicados
+  for insert
+  to authenticated
+  with check (is_admin_ruiz());
+
+drop policy if exists "adjudicados_update_admin" on adjudicados;
+create policy "adjudicados_update_admin"
+  on adjudicados
+  for update
+  to authenticated
+  using (is_admin_ruiz())
+  with check (is_admin_ruiz());
+
+drop policy if exists "adjudicados_delete_admin" on adjudicados;
+create policy "adjudicados_delete_admin"
+  on adjudicados
+  for delete
+  to authenticated
+  using (is_admin_ruiz());
+
+-- grupos_invitados: lectura abierta (el cliente necesita poder chequear si su
+-- grupo está habilitado para licitar sin estar autenticado); escritura sólo Admin.
+drop policy if exists "grupos_invitados_read_all" on grupos_invitados;
+create policy "grupos_invitados_read_all"
+  on grupos_invitados
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "grupos_invitados_write_admin" on grupos_invitados;
+create policy "grupos_invitados_write_admin"
+  on grupos_invitados
+  for insert
+  to authenticated
+  with check (is_admin_ruiz());
+
+drop policy if exists "grupos_invitados_update_admin" on grupos_invitados;
+create policy "grupos_invitados_update_admin"
+  on grupos_invitados
+  for update
+  to authenticated
+  using (is_admin_ruiz())
+  with check (is_admin_ruiz());
+
+drop policy if exists "grupos_invitados_delete_admin" on grupos_invitados;
+create policy "grupos_invitados_delete_admin"
+  on grupos_invitados
+  for delete
+  to authenticated
+  using (is_admin_ruiz());
+
+-- condiciones_comerciales: lectura abierta (el Catálogo, la Vitrina y el Estado de
+-- Cuenta del cliente la leen sin estar autenticado); escritura sólo Administrador.
+drop policy if exists "condiciones_comerciales_read_all" on condiciones_comerciales;
+create policy "condiciones_comerciales_read_all"
+  on condiciones_comerciales
+  for select
+  to anon, authenticated
+  using (true);
+
+drop policy if exists "condiciones_comerciales_write_admin" on condiciones_comerciales;
+create policy "condiciones_comerciales_write_admin"
+  on condiciones_comerciales
+  for insert
+  to authenticated
+  with check (is_admin_ruiz());
+
+drop policy if exists "condiciones_comerciales_update_admin" on condiciones_comerciales;
+create policy "condiciones_comerciales_update_admin"
+  on condiciones_comerciales
+  for update
+  to authenticated
+  using (is_admin_ruiz())
+  with check (is_admin_ruiz());

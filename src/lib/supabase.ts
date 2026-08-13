@@ -2,12 +2,16 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import {
   ClienteCartera,
   AdjudicadoSAP,
+  GrupoInvitado,
   buscarClientePorConsulta as buscarClienteLocal,
   extraerMesDeFecha,
 } from '../utils/excelParser';
+import { CondicionesComerciales } from '../utils/condicionesComerciales';
 
 export const TABLA_CARTERA = 'cartera_clientes';
 export const TABLA_ADJUDICADOS = 'adjudicados';
+export const TABLA_GRUPOS_INVITADOS = 'grupos_invitados';
+export const TABLA_CONDICIONES = 'condiciones_comerciales';
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -20,6 +24,67 @@ export const supabase: SupabaseClient | null =
   SUPABASE_URL && SUPABASE_ANON_KEY ? createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
 
 export const nubeConfigurada = supabase !== null;
+
+// ==== AUTENTICACIÓN REAL DE ADMINISTRADOR (Supabase Auth) ====
+//
+// Reemplaza la vieja validación de texto plano ("ADMIN" tipeado en el login) por
+// sesiones reales de Supabase Auth. El rol de Administrador de la agencia se
+// resuelve del lado del servidor vía RLS (tabla `admins` + función `is_admin_ruiz()`,
+// ver supabase/schema.sql) — este módulo sólo maneja el login/logout/sesión; quién
+// puede efectivamente escribir en `cartera_clientes`/`adjudicados` lo decide Postgres,
+// no este código de cliente.
+
+export interface SesionAdmin {
+  email: string;
+}
+
+const aSesionAdmin = (session: { user: { email?: string | null } } | null): SesionAdmin | null =>
+  session ? { email: session.user.email || '' } : null;
+
+export interface ResultadoLoginAdmin {
+  ok: boolean;
+  error?: string;
+}
+
+export const iniciarSesionAdmin = async (email: string, password: string): Promise<ResultadoLoginAdmin> => {
+  if (!supabase) return { ok: false, error: 'La autenticación en la nube no está configurada.' };
+  try {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) return { ok: false, error: error.message };
+    return { ok: true };
+  } catch {
+    return { ok: false, error: 'No se pudo contactar al servicio de autenticación.' };
+  }
+};
+
+export const cerrarSesionAdmin = async (): Promise<void> => {
+  if (!supabase) return;
+  try {
+    await supabase.auth.signOut();
+  } catch {
+    // sin conexión u otro error de red: igual limpiamos el estado local en App.tsx
+  }
+};
+
+export const obtenerSesionAdminActual = async (): Promise<SesionAdmin | null> => {
+  if (!supabase) return null;
+  try {
+    const { data } = await supabase.auth.getSession();
+    return aSesionAdmin(data.session);
+  } catch {
+    return null;
+  }
+};
+
+// Notifica a `callback` en cada login/logout/refresh de token. Devuelve una función
+// para desuscribirse (usarla en el cleanup de un useEffect).
+export const suscribirseASesionAdmin = (callback: (sesion: SesionAdmin | null) => void): (() => void) => {
+  if (!supabase) return () => {};
+  const { data } = supabase.auth.onAuthStateChange((_evento, session) => {
+    callback(aSesionAdmin(session));
+  });
+  return () => data.subscription.unsubscribe();
+};
 
 // ==== Mapeo fila de Supabase (snake_case) <-> tipos de la app (camelCase) ====
 
@@ -93,6 +158,42 @@ const aAdjudicadoSAP = (f: FilaAdjudicado): AdjudicadoSAP => ({
   estadoAdjudicacion: f.estado_adjudicacion,
   codigoPin: f.codigo_pin,
   email: f.email,
+});
+
+interface FilaGrupoInvitado {
+  acto: string;
+  grupo_orden: string;
+  fecha_web: string;
+  titular: string;
+  porcentaje_financia: string;
+  modelo: string;
+  oferta_comercial: string;
+  ultima_cuota: string;
+  cuota_licitacion: string;
+}
+
+const aFilaGrupoInvitado = (g: GrupoInvitado): FilaGrupoInvitado => ({
+  acto: g.acto,
+  grupo_orden: g.grupoOrden,
+  fecha_web: g.fechaWeb,
+  titular: g.titular,
+  porcentaje_financia: g.porcentajeFinancia,
+  modelo: g.modelo,
+  oferta_comercial: g.ofertaComercial,
+  ultima_cuota: g.ultimaCuota,
+  cuota_licitacion: g.cuotaLicitacion,
+});
+
+const aGrupoInvitado = (f: FilaGrupoInvitado): GrupoInvitado => ({
+  acto: f.acto,
+  grupoOrden: f.grupo_orden,
+  fechaWeb: f.fecha_web,
+  titular: f.titular,
+  porcentajeFinancia: f.porcentaje_financia,
+  modelo: f.modelo,
+  ofertaComercial: f.oferta_comercial,
+  ultimaCuota: f.ultima_cuota,
+  cuotaLicitacion: f.cuota_licitacion,
 });
 
 // ==== CARTERA DE CLIENTES ====
@@ -173,6 +274,85 @@ const buscarAdjudicadoEnNube = async (grupoOrden: string): Promise<AdjudicadoSAP
       .maybeSingle();
     if (error || !data) return null;
     return aAdjudicadoSAP(data as FilaAdjudicado);
+  } catch {
+    return null;
+  }
+};
+
+// ==== GRUPOS INVITADOS A LICITAR ====
+
+export const guardarGruposInvitadosEnNube = async (grupos: GrupoInvitado[]): Promise<boolean> => {
+  if (!supabase || grupos.length === 0) return false;
+  try {
+    const { error } = await supabase
+      .from(TABLA_GRUPOS_INVITADOS)
+      .upsert(grupos.map(aFilaGrupoInvitado), { onConflict: 'acto,grupo_orden' });
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
+export const obtenerGruposInvitadosDeNube = async (): Promise<GrupoInvitado[] | null> => {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase.from(TABLA_GRUPOS_INVITADOS).select('*');
+    if (error || !data) return null;
+    return (data as FilaGrupoInvitado[]).map(aGrupoInvitado);
+  } catch {
+    return null;
+  }
+};
+
+// Usado por DashboardCliente.tsx para chequear en vivo si el grupo del cliente
+// está habilitado para licitar, sin depender de que ya esté en el localStorage
+// de ese dispositivo (por ejemplo, un cliente entrando desde un celular nuevo).
+export const buscarGruposInvitadosPorGrupoEnNube = async (grupoOrden: string): Promise<GrupoInvitado[] | null> => {
+  if (!supabase || !grupoOrden) return null;
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_GRUPOS_INVITADOS)
+      .select('*')
+      .eq('grupo_orden', grupoOrden);
+    if (error || !data) return null;
+    return (data as FilaGrupoInvitado[]).map(aGrupoInvitado);
+  } catch {
+    return null;
+  }
+};
+
+// ==== CONDICIONES COMERCIALES (catálogo de precios/fichas técnicas — fila única) ====
+//
+// A diferencia de cartera_clientes/adjudicados (una fila por cliente), acá hay una
+// única fila global (id=1) con todo el objeto CondicionesComerciales serializado en
+// la columna `data` — es más simple que modelar una tabla por vehículo para un
+// catálogo de 9 modelos que sólo edita el Administrador. Ver supabase/schema.sql:
+// la escritura requiere sesión de Administrador (is_admin_ruiz()), la lectura queda
+// abierta porque el Catálogo/Vitrina/Estado de Cuenta del cliente la necesitan sin
+// estar autenticado.
+
+export const guardarCondicionesEnNube = async (condiciones: CondicionesComerciales): Promise<boolean> => {
+  if (!supabase) return false;
+  try {
+    const { error } = await supabase
+      .from(TABLA_CONDICIONES)
+      .upsert({ id: 1, data: condiciones }, { onConflict: 'id' });
+    return !error;
+  } catch {
+    return false;
+  }
+};
+
+export const obtenerCondicionesDeNube = async (): Promise<CondicionesComerciales | null> => {
+  if (!supabase) return null;
+  try {
+    const { data, error } = await supabase
+      .from(TABLA_CONDICIONES)
+      .select('data')
+      .eq('id', 1)
+      .maybeSingle();
+    if (error || !data) return null;
+    return data.data as CondicionesComerciales;
   } catch {
     return null;
   }
