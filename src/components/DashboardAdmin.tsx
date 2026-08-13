@@ -5,22 +5,32 @@ import {
   Search, Trophy, RefreshCw, Target, X, ExternalLink, Save, CheckCircle2, Files,
   Trash2, AlertTriangle, Award, MessageCircle, Eye, MapPin, Cloud,
   TrendingUp, TrendingDown, Percent, BarChart3, Building2, Crown,
-  Receipt, Layers, LineChart, ChevronDown,
+  Receipt, Layers, LineChart, ChevronDown, Wrench,
 } from 'lucide-react';
 import {
   procesarArchivoExcel, ClientePlan,
   ClienteCartera, procesarArchivoCartera,
   AdjudicadoSAP, procesarReporteAdjudicadosSAP,
   MejorOferta, procesarReporteLicitaciones,
+  GrupoInvitado, procesarGruposInvitados,
   cargarCartera, guardarCartera, vaciarCartera, combinarCarteraConConteo,
   cargarAdjudicados, guardarAdjudicados, vaciarAdjudicados, combinarAdjudicadosConConteo,
   cargarMejoresOfertas, guardarMejoresOfertas, combinarMejoresOfertasConConteo,
+  cargarGruposInvitados, guardarGruposInvitados, combinarGruposInvitadosConConteo,
   traducirModeloSAP, formatearModeloCliente,
 } from '../utils/excelParser';
-import { cargarCondiciones, guardarCondiciones } from '../utils/condicionesComerciales';
+import {
+  cargarCondiciones, guardarCondiciones, CATALOGO_VEHICULOS_DEFAULT,
+  ConfiguracionVehiculo, FichaTecnicaVehiculo, PlanFinanciacion,
+  procesarListaPreciosRed, combinarPlanesDesdeRed,
+  procesarListaPreciosRaza, combinarPrecioListaDesdeRaza, CambioPrecioLista,
+  procesarDisponibilidadVersiones,
+} from '../utils/condicionesComerciales';
 import {
   nubeConfigurada, guardarCarteraEnNube, guardarAdjudicadosEnNube,
   obtenerCarteraDeNube, obtenerAdjudicadosDeNube,
+  guardarGruposInvitadosEnNube, obtenerGruposInvitadosDeNube,
+  guardarCondicionesEnNube, obtenerCondicionesDeNube,
 } from '../lib/supabase';
 import { ESTADISTICAS_MERCADO_DEFAULT, posicionMarcaPropia, ItemRanking } from '../utils/estadisticasMercado';
 import { fetchCCAStats, cargarCacheCCA, CcaStats } from '../services/ccaService';
@@ -73,8 +83,13 @@ const leerArchivoComoBuffer = (file: File): Promise<ArrayBuffer> =>
     reader.readAsArrayBuffer(file);
   });
 
+// Mismas claves de familia que usa el catálogo por defecto (y que App.tsx/
+// DashboardCliente.tsx leen de condiciones.vehiculos) — derivarlas de acá en vez de
+// tipear la lista de nuevo evita que se desincronicen si el catálogo cambia.
+const FAMILIAS_PRECIOS = Object.keys(CATALOGO_VEHICULOS_DEFAULT);
+
 export default function DashboardAdmin() {
-  const [activeTab, setActiveTab] = useState<'cartera' | 'operativo' | 'licitaciones' | 'estadisticas'>('cartera');
+  const [activeTab, setActiveTab] = useState<'cartera' | 'operativo' | 'precios' | 'licitaciones' | 'estadisticas'>('cartera');
   const [subTabCartera, setSubTabCartera] = useState<'general' | 'adjudicados' | 'multiple'>('general');
 
   const [baseDatosCargada, setBaseDatosCargada] = useState(false);
@@ -99,9 +114,189 @@ export default function DashboardAdmin() {
   const [alertaLicitaciones, setAlertaLicitaciones] = useState<AlertaCarga>(null);
   const [procesandoLicitaciones, setProcesandoLicitaciones] = useState(false);
 
+  // GRUPOS INVITADOS A LICITAR (reporte real "Grupos Invitados Acto <N>") — de acá
+  // sale si el grupo del cliente está habilitado para licitar este mes, ver
+  // DashboardCliente.tsx.
+  const [gruposInvitadosData, setGruposInvitadosData] = useState<GrupoInvitado[]>(() => cargarGruposInvitados());
+  const [baseGruposInvitadosCargada, setBaseGruposInvitadosCargada] = useState(() => cargarGruposInvitados().length > 0);
+  const [alertaGruposInvitados, setAlertaGruposInvitados] = useState<AlertaCarga>(null);
+  const [procesandoGruposInvitados, setProcesandoGruposInvitados] = useState(false);
+
+  const handleArchivoGruposInvitadosSeleccionado = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setProcesandoGruposInvitados(true);
+    const reader = new FileReader();
+    reader.onload = async (evt) => {
+      const buffer = evt.target?.result as ArrayBuffer;
+      const nuevos = procesarGruposInvitados(buffer);
+
+      const { resultado, agregados, omitidos } = combinarGruposInvitadosConConteo(cargarGruposInvitados(), nuevos);
+      guardarGruposInvitados(resultado);
+      setGruposInvitadosData(resultado);
+      setBaseGruposInvitadosCargada(true);
+
+      // Guardado indestructible: localStorage ya quedó actualizado arriba pase lo
+      // que pase; esto además intenta subir sólo los registros nuevos a la nube.
+      const sincronizadoNube = await guardarGruposInvitadosEnNube(nuevos);
+      setAlertaGruposInvitados({ agregados, omitidos, nube: sincronizadoNube });
+      setProcesandoGruposInvitados(false);
+    };
+    reader.readAsArrayBuffer(file);
+  };
+
   // CONDICIONES COMERCIALES (precios, promos y cuotas) — persistidas en localStorage
+  // y, si hay nube configurada, en Supabase. Es la fuente única de verdad que leen
+  // el Catálogo de Modelos, la Vitrina "Quiero mi 0km" y el Estado de Cuenta del
+  // cliente (ver App.tsx / DashboardCliente.tsx) — nunca se reinicia sola.
   const [condiciones, setCondiciones] = useState(() => cargarCondiciones());
   const [condicionesGuardadas, setCondicionesGuardadas] = useState(false);
+
+  // Pestaña "Gestión Comercial & Precios": qué modelo se está editando ahora mismo.
+  const [modeloSeleccionado, setModeloSeleccionado] = useState<string>(FAMILIAS_PRECIOS[0]);
+  const vehiculoEditado: ConfiguracionVehiculo | undefined = condiciones.vehiculos[modeloSeleccionado];
+
+  const actualizarVehiculoEditado = (cambios: Partial<ConfiguracionVehiculo>) => {
+    setCondiciones((prev) => ({
+      ...prev,
+      vehiculos: {
+        ...prev.vehiculos,
+        [modeloSeleccionado]: { ...prev.vehiculos[modeloSeleccionado], ...cambios },
+      },
+    }));
+  };
+
+  const actualizarFichaTecnicaEditada = (cambios: Partial<FichaTecnicaVehiculo>) => {
+    actualizarVehiculoEditado({
+      fichaTecnica: { ...condiciones.vehiculos[modeloSeleccionado].fichaTecnica, ...cambios },
+    });
+  };
+
+  // Un modelo puede tener varios planes de financiación vigentes a la vez (ej.
+  // Kardian 100%/120c, 75%/120c y 75%/84c en simultáneo) — se editan/agregan/borran
+  // de a uno, sobre la lista `planes` del vehículo seleccionado.
+  const actualizarPlan = (indice: number, cambios: Partial<PlanFinanciacion>) => {
+    actualizarVehiculoEditado({
+      planes: condiciones.vehiculos[modeloSeleccionado].planes.map((p, i) => (i === indice ? { ...p, ...cambios } : p)),
+    });
+  };
+
+  const agregarPlan = () => {
+    actualizarVehiculoEditado({
+      planes: [
+        ...condiciones.vehiculos[modeloSeleccionado].planes,
+        { modalidadPct: 75, plazoCuotas: 84, valorCuota1: 0, version: '', integracionMinimaPct: '', cuotasIntegracionMinima: '' },
+      ],
+    });
+  };
+
+  const eliminarPlan = (indice: number) => {
+    const vehiculo = condiciones.vehiculos[modeloSeleccionado];
+    const nuevosPlanes = vehiculo.planes.filter((_, i) => i !== indice);
+    actualizarVehiculoEditado({
+      planes: nuevosPlanes,
+      planDestacadoIndex: Math.min(vehiculo.planDestacadoIndex, Math.max(nuevosPlanes.length - 1, 0)),
+    });
+  };
+
+  // CARGA DE LA LISTA DE PRECIOS RED (Excel real de Plan Rombo): reemplaza los
+  // `planes` de cada familia que el archivo trae (no acumula sobre lo anterior — es
+  // una foto completa del mes) y guarda de inmediato (localStorage + Supabase),
+  // igual que las demás cargas de archivo de este panel.
+  const [cargandoPreciosRed, setCargandoPreciosRed] = useState(false);
+  const [resultadoCargaPreciosRed, setResultadoCargaPreciosRed] = useState<{ familias: number; error?: string } | null>(null);
+
+  const handleArchivoPreciosRedSeleccionado = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setCargandoPreciosRed(true);
+    setResultadoCargaPreciosRed(null);
+    try {
+      const buffer = await leerArchivoComoBuffer(file);
+      const planesPorFamilia = procesarListaPreciosRed(buffer);
+      const familiasDetectadas = Object.keys(planesPorFamilia).length;
+      if (familiasDetectadas === 0) {
+        setResultadoCargaPreciosRed({ familias: 0, error: 'No se reconoció ningún modelo/plan en el archivo. Verificá que sea la Lista de Precios RED.' });
+        return;
+      }
+      const nuevasCondiciones = { ...condiciones, vehiculos: combinarPlanesDesdeRed(condiciones.vehiculos, planesPorFamilia) };
+      setCondiciones(nuevasCondiciones);
+      guardarCondiciones(nuevasCondiciones);
+      guardarCondicionesEnNube(nuevasCondiciones);
+      setResultadoCargaPreciosRed({ familias: familiasDetectadas });
+    } catch {
+      setResultadoCargaPreciosRed({ familias: 0, error: 'No se pudo leer el archivo. Verificá que sea un Excel válido de Lista de Precios RED.' });
+    } finally {
+      setCargandoPreciosRed(false);
+    }
+  };
+
+  // CARGA DE LA LISTA DE PRECIOS (raza): actualiza `precioLista` de cada familia
+  // detectada — usa el precio de la versión que ya coincide con algún plan cargado
+  // (más confiable) o, si no hay ninguno, el precio más bajo de esa familia en el
+  // archivo. Nunca toca `planes`/ficha técnica — sólo el precio de lista.
+  const [cargandoPreciosRaza, setCargandoPreciosRaza] = useState(false);
+  const [resultadoCargaPreciosRaza, setResultadoCargaPreciosRaza] = useState<{ cambios: CambioPrecioLista[]; error?: string } | null>(null);
+
+  const handleArchivoPreciosRazaSeleccionado = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setCargandoPreciosRaza(true);
+    setResultadoCargaPreciosRaza(null);
+    try {
+      const buffer = await leerArchivoComoBuffer(file);
+      const trims = procesarListaPreciosRaza(buffer);
+      if (trims.length === 0) {
+        setResultadoCargaPreciosRaza({ cambios: [], error: 'No se reconoció ningún modelo/versión en el archivo. Verificá que sea la Lista de Precios (raza).' });
+        return;
+      }
+      const { vehiculos, cambios } = combinarPrecioListaDesdeRaza(condiciones.vehiculos, trims);
+      const nuevasCondiciones = { ...condiciones, vehiculos };
+      setCondiciones(nuevasCondiciones);
+      guardarCondiciones(nuevasCondiciones);
+      guardarCondicionesEnNube(nuevasCondiciones);
+      setResultadoCargaPreciosRaza({ cambios });
+    } catch {
+      setResultadoCargaPreciosRaza({ cambios: [], error: 'No se pudo leer el archivo. Verificá que sea un Excel válido de Lista de Precios (raza).' });
+    } finally {
+      setCargandoPreciosRaza(false);
+    }
+  };
+
+  // CARGA DE "PARTICULARIDADES CARTA VIGENCIA": referencia de qué versiones puntuales
+  // están habilitadas para entregar este mes (independiente del modelo suscripto —
+  // ver el comentario en procesarDisponibilidadVersiones). Reemplaza la lista
+  // completa (es una foto del mes, no un incremental).
+  const [cargandoDisponibilidad, setCargandoDisponibilidad] = useState(false);
+  const [resultadoCargaDisponibilidad, setResultadoCargaDisponibilidad] = useState<{ total: number; deshabilitadas: number; error?: string } | null>(null);
+
+  const handleArchivoDisponibilidadSeleccionado = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+    setCargandoDisponibilidad(true);
+    setResultadoCargaDisponibilidad(null);
+    try {
+      const buffer = await leerArchivoComoBuffer(file);
+      const versiones = procesarDisponibilidadVersiones(buffer);
+      if (versiones.length === 0) {
+        setResultadoCargaDisponibilidad({ total: 0, deshabilitadas: 0, error: 'No se reconoció ninguna versión en el archivo. Verificá que sea "Particularidades Carta Vigencia".' });
+        return;
+      }
+      const nuevasCondiciones = { ...condiciones, disponibilidadVersiones: versiones };
+      setCondiciones(nuevasCondiciones);
+      guardarCondiciones(nuevasCondiciones);
+      guardarCondicionesEnNube(nuevasCondiciones);
+      setResultadoCargaDisponibilidad({ total: versiones.length, deshabilitadas: versiones.filter((v) => !v.habilitada).length });
+    } catch {
+      setResultadoCargaDisponibilidad({ total: 0, deshabilitadas: 0, error: 'No se pudo leer el archivo. Verificá que sea un Excel válido de "Particularidades Carta Vigencia".' });
+    } finally {
+      setCargandoDisponibilidad(false);
+    }
+  };
 
   // ESTADÍSTICAS DE MERCADO (CCA) — última sincronización en vivo cacheada en
   // localStorage; si nunca se sincronizó con éxito, la pestaña Estadísticas cae
@@ -127,9 +322,11 @@ export default function DashboardAdmin() {
   useEffect(() => {
     if (!nubeConfigurada) return;
     (async () => {
-      const [carteraNube, adjudicadosNube] = await Promise.all([
+      const [carteraNube, adjudicadosNube, gruposInvitadosNube, condicionesNube] = await Promise.all([
         obtenerCarteraDeNube(),
         obtenerAdjudicadosDeNube(),
+        obtenerGruposInvitadosDeNube(),
+        obtenerCondicionesDeNube(),
       ]);
 
       if (carteraNube) {
@@ -144,11 +341,34 @@ export default function DashboardAdmin() {
         setAdjudicadosData(fusionada);
         if (fusionada.length > 0) setBaseAdjudicadosCargada(true);
       }
+
+      // Identidad compuesta (acto + grupo_orden), no sólo grupo_orden — el mismo
+      // grupo puede figurar invitado en distintos actos — por eso se combina con
+      // el mismo dedup que usa la carga por archivo, en vez de fusionarPorGrupoOrden.
+      if (gruposInvitadosNube) {
+        const { resultado } = combinarGruposInvitadosConConteo(cargarGruposInvitados(), gruposInvitadosNube);
+        guardarGruposInvitados(resultado);
+        setGruposInvitadosData(resultado);
+        if (resultado.length > 0) setBaseGruposInvitadosCargada(true);
+      }
+
+      // Config de un solo objeto (no una lista de filas por grupo_orden): si hay
+      // algo guardado en la nube, reemplaza directamente al respaldo local en vez
+      // de fusionar campo por campo.
+      if (condicionesNube) {
+        guardarCondiciones(condicionesNube);
+        setCondiciones(condicionesNube);
+      }
     })();
   }, []);
 
+  // Guardado indestructible: localStorage ya quedó actualizado pase lo que pase;
+  // esto además intenta subir la misma configuración a la nube (Supabase) en
+  // segundo plano. Si no hay conexión o no está configurada, sigue funcionando
+  // sólo local — nunca bloquea el "Cambios guardados" de la interfaz.
   const handleGuardarCondiciones = () => {
     guardarCondiciones(condiciones);
+    guardarCondicionesEnNube(condiciones);
     setCondicionesGuardadas(true);
     setTimeout(() => setCondicionesGuardadas(false), 2500);
   };
@@ -800,6 +1020,16 @@ export default function DashboardAdmin() {
             Control Operativo
           </button>
           <button
+            onClick={() => setActiveTab('precios')}
+            className={`px-4 sm:px-6 py-3 font-bold text-sm sm:text-base rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
+              activeTab === 'precios'
+                ? 'bg-white text-gray-900 border-t border-x border-gray-200 shadow-sm relative top-[1px]'
+                : 'text-gray-500 hover:text-gray-900'
+            }`}
+          >
+            <Wrench className="h-4 w-4" /> Gestión Comercial &amp; Precios
+          </button>
+          <button
             onClick={() => setActiveTab('licitaciones')}
             className={`px-4 sm:px-6 py-3 font-bold text-sm sm:text-base rounded-t-xl transition-colors whitespace-nowrap flex items-center gap-2 ${
               activeTab === 'licitaciones'
@@ -1207,10 +1437,10 @@ export default function DashboardAdmin() {
             </div>
 
             <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-gray-200">
-              <h3 className="text-lg font-black text-gray-900 mb-1">Condiciones Comerciales (Precios y Promociones)</h3>
-              <p className="text-gray-500 text-sm mb-6">Estos valores se guardan en este dispositivo y se reflejan al instante en el panel del cliente.</p>
+              <h3 className="text-lg font-black text-gray-900 mb-1">Banner Promocional (Portada del Cliente)</h3>
+              <p className="text-gray-500 text-sm mb-6">Título y bajada del banner que ve el cliente al entrar a su panel. Los precios, cuotas y fichas técnicas de cada modelo se editan en la pestaña "Gestión Comercial &amp; Precios".</p>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4">
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Título de la Promoción</label>
                   <input
@@ -1221,30 +1451,12 @@ export default function DashboardAdmin() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Plan Destacado</label>
-                  <input
-                    type="text"
-                    value={condiciones.planDestacado}
-                    onChange={(e) => setCondiciones({ ...condiciones, planDestacado: e.target.value })}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
-                  />
-                </div>
-                <div className="md:col-span-2">
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Descripción / Condiciones</label>
                   <textarea
                     value={condiciones.descripcionPromo}
                     onChange={(e) => setCondiciones({ ...condiciones, descripcionPromo: e.target.value })}
                     rows={2}
                     className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all resize-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Cuota Destacada</label>
-                  <input
-                    type="text"
-                    value={condiciones.cuotaDestacada}
-                    onChange={(e) => setCondiciones({ ...condiciones, cuotaDestacada: e.target.value })}
-                    className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
                   />
                 </div>
               </div>
@@ -1256,7 +1468,7 @@ export default function DashboardAdmin() {
                   onClick={handleGuardarCondiciones}
                   className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-6 py-3 rounded-xl font-black transition-colors shadow-md flex items-center gap-2"
                 >
-                  <Save className="h-4 w-4" /> Guardar Condiciones Comerciales
+                  <Save className="h-4 w-4" /> Guardar Banner
                 </motion.button>
                 <AnimatePresence>
                   {condicionesGuardadas && (
@@ -1271,6 +1483,428 @@ export default function DashboardAdmin() {
                   )}
                 </AnimatePresence>
               </div>
+            </div>
+
+            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-gray-200">
+              <div className="flex items-center justify-between gap-4 mb-1 flex-wrap">
+                <div>
+                  <h3 className="text-lg font-black text-gray-900 flex items-center gap-2"><Layers className="h-5 w-5 text-yellow-500" /> Disponibilidad de Versiones (Cambio de Modelo)</h3>
+                  <p className="text-gray-500 text-sm mt-1 max-w-2xl">
+                    Referencia de "Particularidades Carta Vigencia": qué versiones puntuales tienen stock habilitado este mes, para consultar rápido al gestionar un cambio de modelo. No indica qué modelo suscripto habilita cuál — en la práctica casi cualquier combinación está permitida; lo que sí varía mes a mes es si una versión concreta está disponible en absoluto.
+                  </p>
+                </div>
+                <motion.label
+                  whileHover={{ scale: cargandoDisponibilidad ? 1 : 1.03 }}
+                  whileTap={{ scale: cargandoDisponibilidad ? 1 : 0.97 }}
+                  className={`cursor-pointer text-xs font-bold px-3 py-1.5 rounded-lg border shadow-sm flex items-center gap-1.5 transition-colors shrink-0 ${
+                    cargandoDisponibilidad
+                      ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-wait'
+                      : 'text-gray-600 hover:text-gray-900 bg-white border-gray-200'
+                  }`}
+                >
+                  <UploadCloud className="h-3.5 w-3.5" /> {cargandoDisponibilidad ? 'Leyendo...' : 'Cargar Particularidades Carta Vigencia'}
+                  <input
+                    type="file"
+                    accept=".xlsx, .xls"
+                    disabled={cargandoDisponibilidad}
+                    className="hidden"
+                    onChange={handleArchivoDisponibilidadSeleccionado}
+                  />
+                </motion.label>
+              </div>
+
+              {resultadoCargaDisponibilidad && (
+                <p className={`text-xs font-bold mt-3 ${resultadoCargaDisponibilidad.error ? 'text-red-600' : 'text-green-600'}`}>
+                  {resultadoCargaDisponibilidad.error
+                    ? resultadoCargaDisponibilidad.error
+                    : `Se cargaron ${resultadoCargaDisponibilidad.total} versiones (${resultadoCargaDisponibilidad.deshabilitadas} sin stock este mes).`}
+                </p>
+              )}
+
+              {condiciones.disponibilidadVersiones.length === 0 ? (
+                <p className="text-sm text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-center mt-4">
+                  Sin datos cargados todavía.
+                </p>
+              ) : (
+                <div className="overflow-x-auto max-h-[400px] overflow-y-auto mt-4">
+                  <table className="w-full text-left border-collapse min-w-[700px]">
+                    <thead className="sticky top-0 z-10 bg-white">
+                      <tr className="border-b border-gray-200 shadow-sm">
+                        <th className="py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">MODELO</th>
+                        <th className="py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">CÓDIGO</th>
+                        <th className="py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">VERSIÓN</th>
+                        <th className="py-3 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">ESTADO</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-gray-100">
+                      {[...condiciones.disponibilidadVersiones]
+                        .sort((a, b) => Number(a.habilitada) - Number(b.habilitada))
+                        .map((v, index) => (
+                          <tr key={`${v.familia}-${v.codigo}-${index}`} className="hover:bg-gray-50 transition-colors">
+                            <td className="py-3 px-4 font-black text-gray-900">{condiciones.vehiculos[v.familia]?.nombre || v.familia}</td>
+                            <td className="py-3 px-4 text-gray-600 font-mono text-xs">{v.codigo || '-'}</td>
+                            <td className="py-3 px-4 text-gray-700">{v.version}</td>
+                            <td className="py-3 px-4">
+                              <span className={`text-[11px] font-black px-2.5 py-1 rounded-full ${
+                                v.habilitada ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'
+                              }`}>
+                                {v.habilitada ? 'Habilitada' : 'Sin stock este mes'}
+                              </span>
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </motion.div>
+        )}
+
+        {/* === TAB PRECIOS === */}
+        {activeTab === 'precios' && (
+          <motion.div
+            key="tab-precios"
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -12 }}
+            transition={{ duration: 0.3, ease: 'easeOut' }}
+            className="space-y-6"
+          >
+            <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-gray-200">
+              <h2 className="text-2xl font-black text-gray-900">Gestión Comercial &amp; Precios</h2>
+              <p className="text-gray-500 text-sm mt-1">
+                Fuente única de verdad de precios, cuotas, plan de financiación, ficha técnica y bonificación de cada
+                modelo. Lo que se guarda acá es exactamente lo que ve el cliente en el Catálogo, la Vitrina "Quiero mi
+                0km" y su Estado de Cuenta — no cambia solo: queda fijo hasta que lo edites y guardes de nuevo.
+              </p>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[220px_1fr] gap-6 items-start">
+              {/* SELECTOR DE MODELO */}
+              <div className="bg-white rounded-3xl p-3 shadow-xl border border-gray-200 flex lg:flex-col gap-1.5 overflow-x-auto lg:overflow-visible">
+                {FAMILIAS_PRECIOS.map((familia) => (
+                  <button
+                    key={familia}
+                    onClick={() => setModeloSeleccionado(familia)}
+                    className={`px-4 py-2.5 rounded-xl font-bold text-sm text-left transition-colors whitespace-nowrap ${
+                      modeloSeleccionado === familia
+                        ? 'bg-gray-900 text-white shadow-md'
+                        : 'text-gray-600 hover:bg-gray-100'
+                    }`}
+                  >
+                    {condiciones.vehiculos[familia]?.nombre || familia}
+                  </button>
+                ))}
+              </div>
+
+              {/* FORMULARIO DEL MODELO SELECCIONADO */}
+              {vehiculoEditado && (
+                <div className="bg-white rounded-3xl p-6 sm:p-8 shadow-xl border border-gray-200 space-y-6">
+                  <div className="flex items-center gap-2">
+                    <Wrench className="h-5 w-5 text-yellow-500" />
+                    <h3 className="text-lg font-black text-gray-900">{vehiculoEditado.nombre}</h3>
+                  </div>
+
+                  <div>
+                    <div className="flex items-end justify-between gap-4 mb-1.5">
+                      <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider">Precio de Lista (Valor Móvil)</label>
+                      <motion.label
+                        whileHover={{ scale: cargandoPreciosRaza ? 1 : 1.03 }}
+                        whileTap={{ scale: cargandoPreciosRaza ? 1 : 0.97 }}
+                        className={`cursor-pointer text-xs font-bold px-3 py-1.5 rounded-lg border shadow-sm flex items-center gap-1.5 transition-colors ${
+                          cargandoPreciosRaza
+                            ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-wait'
+                            : 'text-gray-600 hover:text-gray-900 bg-white border-gray-200'
+                        }`}
+                      >
+                        <UploadCloud className="h-3.5 w-3.5" /> {cargandoPreciosRaza ? 'Leyendo...' : 'Cargar Lista de Precios (raza)'}
+                        <input
+                          type="file"
+                          accept=".xlsx, .xls"
+                          disabled={cargandoPreciosRaza}
+                          className="hidden"
+                          onChange={handleArchivoPreciosRazaSeleccionado}
+                        />
+                      </motion.label>
+                    </div>
+                    <input
+                      type="number"
+                      value={vehiculoEditado.precioLista}
+                      onChange={(e) => actualizarVehiculoEditado({ precioLista: Number(e.target.value) })}
+                      className="w-full max-w-xs bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                    />
+                    {resultadoCargaPreciosRaza && (
+                      <div className={`text-xs font-bold mt-2 ${resultadoCargaPreciosRaza.error ? 'text-red-600' : 'text-green-600'}`}>
+                        {resultadoCargaPreciosRaza.error ? (
+                          resultadoCargaPreciosRaza.error
+                        ) : (
+                          <div className="space-y-0.5">
+                            <p>Precio de lista actualizado para {resultadoCargaPreciosRaza.cambios.length} modelo(s):</p>
+                            <ul className="font-medium text-gray-600 space-y-0.5">
+                              {resultadoCargaPreciosRaza.cambios.map((c) => (
+                                <li key={c.familia}>
+                                  {condiciones.vehiculos[c.familia]?.nombre || c.familia}: {c.version} — ${c.precioLista.toLocaleString('es-AR')}
+                                  {!c.coincideConPlanCargado && ' (precio más bajo disponible, sin plan de financiación coincidente)'}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center justify-between mb-3">
+                      <p className="text-xs font-black text-gray-500 uppercase tracking-wider">
+                        Planes de Financiación ({vehiculoEditado.planes.length})
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <motion.label
+                          whileHover={{ scale: cargandoPreciosRed ? 1 : 1.03 }}
+                          whileTap={{ scale: cargandoPreciosRed ? 1 : 0.97 }}
+                          className={`cursor-pointer text-xs font-bold px-3 py-1.5 rounded-lg border shadow-sm flex items-center gap-1.5 transition-colors ${
+                            cargandoPreciosRed
+                              ? 'text-gray-400 bg-gray-100 border-gray-200 cursor-wait'
+                              : 'text-gray-600 hover:text-gray-900 bg-white border-gray-200'
+                          }`}
+                        >
+                          <UploadCloud className="h-3.5 w-3.5" /> {cargandoPreciosRed ? 'Leyendo...' : 'Cargar Lista de Precios RED'}
+                          <input
+                            type="file"
+                            accept=".xlsx, .xls"
+                            disabled={cargandoPreciosRed}
+                            className="hidden"
+                            onChange={handleArchivoPreciosRedSeleccionado}
+                          />
+                        </motion.label>
+                        <motion.button
+                          whileHover={{ scale: 1.03 }}
+                          whileTap={{ scale: 0.97 }}
+                          onClick={agregarPlan}
+                          className="text-xs font-bold text-gray-600 hover:text-gray-900 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm flex items-center gap-1.5 transition-colors"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> Agregar Plan
+                        </motion.button>
+                      </div>
+                    </div>
+
+                    {resultadoCargaPreciosRed && (
+                      <p className={`text-xs font-bold mb-3 ${resultadoCargaPreciosRed.error ? 'text-red-600' : 'text-green-600'}`}>
+                        {resultadoCargaPreciosRed.error
+                          ? resultadoCargaPreciosRed.error
+                          : `Se cargaron y guardaron los planes de ${resultadoCargaPreciosRed.familias} modelo(s) detectados en el archivo.`}
+                      </p>
+                    )}
+
+                    {vehiculoEditado.planes.length === 0 ? (
+                      <p className="text-sm text-gray-400 bg-gray-50 border border-dashed border-gray-200 rounded-xl p-4 text-center">
+                        Sin planes cargados. Subí la Lista de Precios RED o agregá uno a mano.
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {vehiculoEditado.planes.map((plan, indice) => (
+                          <div
+                            key={indice}
+                            className={`border rounded-xl p-4 transition-colors ${
+                              indice === vehiculoEditado.planDestacadoIndex
+                                ? 'border-yellow-500 bg-yellow-500/5'
+                                : 'border-gray-200'
+                            }`}
+                          >
+                            <div className="flex items-center justify-between mb-3">
+                              <label className="flex items-center gap-1.5 text-xs font-bold text-gray-600 cursor-pointer">
+                                <input
+                                  type="radio"
+                                  checked={indice === vehiculoEditado.planDestacadoIndex}
+                                  onChange={() => actualizarVehiculoEditado({ planDestacadoIndex: indice })}
+                                  className="accent-yellow-500"
+                                />
+                                Plan destacado (Vitrina y Estado de Cuenta)
+                              </label>
+                              <button
+                                onClick={() => eliminarPlan(indice)}
+                                className="text-gray-400 hover:text-red-600 transition-colors"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Modalidad (%)</label>
+                                <input
+                                  type="number"
+                                  value={plan.modalidadPct}
+                                  onChange={(e) => actualizarPlan(indice, { modalidadPct: Number(e.target.value) })}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Plazo (cuotas)</label>
+                                <input
+                                  type="number"
+                                  value={plan.plazoCuotas}
+                                  onChange={(e) => actualizarPlan(indice, { plazoCuotas: Number(e.target.value) })}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Cuota 1</label>
+                                <input
+                                  type="number"
+                                  value={plan.valorCuota1}
+                                  onChange={(e) => actualizarPlan(indice, { valorCuota1: Number(e.target.value) })}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Versión</label>
+                                <input
+                                  type="text"
+                                  value={plan.version}
+                                  onChange={(e) => actualizarPlan(indice, { version: e.target.value })}
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Integración Mínima</label>
+                                <input
+                                  type="text"
+                                  value={plan.integracionMinimaPct ?? ''}
+                                  onChange={(e) => actualizarPlan(indice, { integracionMinimaPct: e.target.value })}
+                                  placeholder="ej. 30%, cuota extra"
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                              <div>
+                                <label className="block text-[10px] font-bold text-gray-500 uppercase tracking-wider mb-1">Cuotas Integración Mínima</label>
+                                <input
+                                  type="text"
+                                  value={plan.cuotasIntegracionMinima ?? ''}
+                                  onChange={(e) => actualizarPlan(indice, { cuotasIntegracionMinima: e.target.value })}
+                                  placeholder="ej. 34 cuotas, -"
+                                  className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-3">Promoción del Mes</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Bonificación (%)</label>
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={vehiculoEditado.bonificacionPct}
+                          onChange={(e) => actualizarVehiculoEditado({ bonificacionPct: Number(e.target.value) })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Vigencia</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.vigenciaMes}
+                          onChange={(e) => actualizarVehiculoEditado({ vigenciaMes: e.target.value })}
+                          placeholder="ej. Agosto 2026"
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-black text-gray-500 uppercase tracking-wider mb-3">Ficha Técnica</p>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Motor</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.fichaTecnica.motor}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ motor: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Transmisión</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.fichaTecnica.transmision}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ transmision: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Tracción</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.fichaTecnica.traccion}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ traccion: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Consumo</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.fichaTecnica.consumo}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ consumo: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Baúl</label>
+                        <input
+                          type="text"
+                          value={vehiculoEditado.fichaTecnica.baul}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ baul: e.target.value })}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all"
+                        />
+                      </div>
+                      <div className="sm:col-span-2">
+                        <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-1.5">Equipamiento Clave</label>
+                        <textarea
+                          value={vehiculoEditado.fichaTecnica.equipamiento}
+                          onChange={(e) => actualizarFichaTecnicaEditada({ equipamiento: e.target.value })}
+                          rows={2}
+                          className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium outline-none focus:border-gray-900 focus:ring-1 focus:ring-yellow-500 transition-all resize-none"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-4 pt-2 border-t border-gray-100">
+                    <motion.button
+                      whileHover={{ scale: 1.03 }}
+                      whileTap={{ scale: 0.97 }}
+                      onClick={handleGuardarCondiciones}
+                      className="bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-6 py-3 rounded-xl font-black transition-colors shadow-md flex items-center gap-2"
+                    >
+                      <Save className="h-4 w-4" /> Guardar {vehiculoEditado.nombre}
+                    </motion.button>
+                    <AnimatePresence>
+                      {condicionesGuardadas && (
+                        <motion.span
+                          initial={{ opacity: 0, x: -8 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          exit={{ opacity: 0 }}
+                          className="text-green-600 text-sm font-bold flex items-center gap-1.5"
+                        >
+                          <CheckCircle2 className="h-4 w-4" /> Cambios guardados
+                        </motion.span>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                </div>
+              )}
             </div>
           </motion.div>
         )}
@@ -1346,6 +1980,71 @@ export default function DashboardAdmin() {
                               {pos.modalidad && <div className="text-xs text-gray-400">{pos.modalidad}</div>}
                             </td>
                           ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </motion.div>
+            )}
+
+            {/* === GRUPOS INVITADOS A LICITAR === */}
+            <AnimatePresence>
+              <BannerAlerta key="alerta-grupos-invitados" alerta={alertaGruposInvitados} />
+            </AnimatePresence>
+
+            {!baseGruposInvitadosCargada ? (
+              <div className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border-2 border-dashed border-gray-300 text-center flex flex-col items-center justify-center min-h-[300px] transition-colors hover:border-yellow-500 hover:bg-yellow-50/50 group">
+                <div className="bg-gray-100 p-4 rounded-full mb-6 group-hover:bg-yellow-100 transition-colors">
+                  <Trophy className="h-12 w-12 text-gray-400 group-hover:text-yellow-600 transition-colors" />
+                </div>
+                <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-3">Cargar "Grupos Invitados Acto"</h3>
+                <p className="text-gray-500 mb-8 max-w-md mx-auto text-sm">Subí el reporte de grupos invitados a licitar del mes (Acto, Fecha, Grupo y Orden, Titular, % Financiación, Modelo). Define qué clientes ven habilitado "Licitar" en su panel.</p>
+                <motion.label
+                  whileHover={{ scale: procesandoGruposInvitados ? 1 : 1.05 }}
+                  whileTap={{ scale: procesandoGruposInvitados ? 1 : 0.97 }}
+                  className={`cursor-pointer bg-gray-900 hover:bg-black text-white px-8 py-3.5 rounded-xl font-bold transition-colors shadow-md flex items-center gap-3 ${procesandoGruposInvitados ? 'opacity-60 cursor-not-allowed' : ''}`}
+                >
+                  <RefreshCw className={`h-5 w-5 ${procesandoGruposInvitados ? 'animate-spin' : ''}`} />
+                  {procesandoGruposInvitados ? 'Procesando...' : 'Seleccionar Archivo'}
+                  <input type="file" accept=".xlsx, .xls, .csv" disabled={procesandoGruposInvitados} className="hidden" onChange={handleArchivoGruposInvitadosSeleccionado} />
+                </motion.label>
+              </div>
+            ) : (
+              <motion.div
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className="bg-white rounded-3xl shadow-xl border border-gray-200 overflow-hidden"
+              >
+                <div className="p-5 sm:p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50/50">
+                  <h3 className="font-black text-gray-900 flex items-center gap-2"><Trophy className="h-5 w-5 text-yellow-500"/> Grupos Invitados ({gruposInvitadosData.length})</h3>
+                  <label className="cursor-pointer text-xs font-bold text-gray-500 hover:text-gray-900 bg-white px-3 py-1.5 rounded-lg border border-gray-200 shadow-sm flex items-center gap-1.5">
+                    <RefreshCw className="h-3 w-3" /> Sumar otro archivo
+                    <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleArchivoGruposInvitadosSeleccionado} />
+                  </label>
+                </div>
+                <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse min-w-[900px]">
+                    <thead className="sticky top-0 z-10 bg-white">
+                      <tr className="border-b border-gray-200 shadow-sm">
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">ACTO</th>
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">GRUPO Y ORDEN</th>
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">TITULAR</th>
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">MODELO</th>
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">% FINANC.</th>
+                        <th className="py-4 px-4 text-xs font-bold text-gray-400 uppercase tracking-wider bg-white">FECHA</th>
+                      </tr>
+                    </thead>
+                    <tbody className="text-sm divide-y divide-gray-100">
+                      {gruposInvitadosData.slice(0, 200).map((grupo, index) => (
+                        <tr key={`${grupo.acto}-${grupo.grupoOrden}-${index}`} className="hover:bg-gray-50 transition-colors">
+                          <td className="py-3 px-4 text-gray-700">{grupo.acto || '-'}</td>
+                          <td className="py-3 px-4 font-black text-gray-900">{grupo.grupoOrden || '-'}</td>
+                          <td className="py-3 px-4 text-gray-700">{grupo.titular || '-'}</td>
+                          <td className="py-3 px-4 text-gray-700">{grupo.modelo || '-'}</td>
+                          <td className="py-3 px-4 text-gray-700">{grupo.porcentajeFinancia || '-'}</td>
+                          <td className="py-3 px-4 text-gray-700">{grupo.fechaWeb || '-'}</td>
                         </tr>
                       ))}
                     </tbody>

@@ -1,14 +1,24 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package, DollarSign, FileText, RefreshCw, TrendingUp, CheckCircle2, Play, Pause } from 'lucide-react';
+import { MapPin, Phone as PhoneIcon, Mail, Clock, X, Instagram, Facebook, Car, Star, ChevronLeft, Settings, Gauge, Activity, MessageCircle, ShieldCheck, UserCheck, ArrowRight, Loader2, Fuel, Package, DollarSign, FileText, RefreshCw, TrendingUp, CheckCircle2, Play, Pause, Lock, LogOut, Tag } from 'lucide-react';
 import Header from './components/Header';
 import DashboardCliente from './components/DashboardCliente';
 import DashboardAdmin from './components/DashboardAdmin';
 import LicitacionesCliente from './components/LicitacionesCliente';
 import ModalOfertaLicitacion from './components/ModalOfertaLicitacion';
 import { ClienteCartera } from './utils/excelParser';
-import { buscarClientePorConsultaConNube } from './lib/supabase';
+import {
+  buscarClientePorConsultaConNube,
+  nubeConfigurada,
+  iniciarSesionAdmin,
+  cerrarSesionAdmin,
+  obtenerSesionAdminActual,
+  suscribirseASesionAdmin,
+  SesionAdmin,
+  obtenerCondicionesDeNube,
+} from './lib/supabase';
 import { get360Frame, get360Frames } from './utils/assets';
+import { cargarCondiciones, guardarCondiciones, CONDICIONES_STORAGE_KEY, formatModalidadPct, formatearMoneda, obtenerPlanDestacado } from './utils/condicionesComerciales';
 
 // Versiones reales por modelo, con foto, secuencia 360°, ficha técnica y plan propios.
 interface VersionVehiculo {
@@ -33,11 +43,13 @@ interface PlanVitrina {
   segmento: string;
   origen: string;
   rating: number; // 0-5, admite medios puntos (ej. 4.5)
-  planRatio: string; // '75/25' | '80/20' | '100/0'
+  planRatio: string; // '75/25' | '80/20' | '100%' — viene de condiciones.vehiculos[familia].modalidad
   cuotasTotales: number;
   valorMovil: number;
   variacionMensual: number; // % vs. mes anterior
   cuota1Estimada: string; // ya formateada, ej. "$245.500"
+  bonificacionPct: number; // % de bonificación vigente (0 = sin promo activa)
+  vigenciaMes: string; // ej. "Agosto 2026"
   adjudicacionAsegurada: { activa: boolean; cuota: number };
   requisitos: string;
   diferimiento: string;
@@ -60,7 +72,15 @@ const version = (
   ...datos,
 });
 
-const versionesPorModelo: Record<string, VersionVehiculo[]> = {
+// Base estática de versiones/trims por familia (fotos, plazas, variantes de motor,
+// etc.). La versión "principal" de cada familia (VERSION_PRINCIPAL_POR_FAMILIA, más
+// abajo) es la que la Vitrina "Quiero mi 0km" ya usaba como foto de portada — para
+// esa versión puntual, ficha técnica/plan/cuota se pisan en tiempo real con lo que
+// el Administrador cargó en "Gestión Comercial & Precios" (ver el useMemo
+// `versionesPorModelo` dentro de App()); el resto de las versiones de cada familia
+// (otras motorizaciones/variantes del catálogo completo) siguen siendo fichas
+// propias, no gestionadas todavía desde ese panel.
+const VERSIONES_POR_MODELO_BASE: Record<string, VersionVehiculo[]> = {
   KWID: [
     version('Kwid Bitono', 'KWID', { motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '16 km/l', baul: '300 litros', equipamiento: 'Llantas bitono, aire acondicionado, dirección asistida', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$231.000' }),
     version('Kwid Outsider', 'KWID', { motor: '1.0 SCe 66cv', transmision: 'Manual 5v', traccion: '4x2', consumo: '15.5 km/l', baul: '300 litros', equipamiento: 'Paquete aventura, barras de techo, faros antiniebla', tipoPlan: 'Plan 100% en 120 Cuotas', cuota: '$238.000' }),
@@ -100,6 +120,21 @@ const versionesPorModelo: Record<string, VersionVehiculo[]> = {
 
 const FAMILIAS_CATALOGO = ['KWID', 'KARDIAN', 'DUSTER', 'BOREAL', 'KANGOO', 'OROCH', 'MASTER', 'ARKANA', 'KOLEOS'];
 
+// Nombre exacto (dentro de VERSIONES_POR_MODELO_BASE[familia]) de la versión que
+// representa a cada familia en la Vitrina Comercial y que por lo tanto queda
+// gobernada por Gestión Comercial & Precios.
+const VERSION_PRINCIPAL_POR_FAMILIA: Record<string, string> = {
+  KWID: 'Kwid Bitono',
+  KARDIAN: 'Kardian Evolution 156 MT',
+  DUSTER: 'Duster Intens MT',
+  BOREAL: 'Boreal Iconic',
+  KANGOO: 'Kangoo Express 5A',
+  OROCH: 'Oroch Emotion',
+  MASTER: 'Master',
+  ARKANA: 'Arkana E-Tech Hybrid',
+  KOLEOS: 'Koleos Techno',
+};
+
 // Visor 360° por versión: sólo animación de rotación suave en bucle (fotogramas
 // 1 a 8) con un botón de Pausa/Play — sin arrastre manual ni textos adicionales.
 function VisorVersion360({ version, autoGirar = false }: { version: VersionVehiculo; autoGirar?: boolean }) {
@@ -122,7 +157,7 @@ function VisorVersion360({ version, autoGirar = false }: { version: VersionVehic
         src={imgSrc}
         alt={version.nombre}
         draggable={false}
-        className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
+        className="absolute inset-0 w-full h-full object-contain drop-shadow-xl transition-none pointer-events-none select-none"
       />
       {total > 0 && (
         <motion.button
@@ -176,6 +211,105 @@ export default function App() {
   const [buscandoCliente, setBuscandoCliente] = useState(false);
   const [clienteActivo, setClienteActivo] = useState<ClienteCartera | null>(null);
 
+  // GESTIÓN COMERCIAL & PRECIOS (fuente única de verdad, ver
+  // src/utils/condicionesComerciales.ts): precio, cuota, plan de financiación y
+  // ficha técnica de cada modelo, editados desde el Panel Admin. Arranca con lo
+  // último guardado en este dispositivo y, si hay nube configurada, se actualiza
+  // con lo que haya en Supabase al cargar la página — así un cliente que entra
+  // desde un dispositivo nuevo (sin nada en su localStorage) ve los precios reales
+  // que cargó el Administrador, no sólo el snapshot por defecto. También se relee
+  // si cambia en otra pestaña de este mismo dispositivo con el Panel Admin abierto.
+  const [condiciones, setCondiciones] = useState(() => cargarCondiciones());
+  useEffect(() => {
+    if (nubeConfigurada) {
+      obtenerCondicionesDeNube().then((remoto) => {
+        if (remoto) {
+          guardarCondiciones(remoto);
+          setCondiciones(remoto);
+        }
+      });
+    }
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === CONDICIONES_STORAGE_KEY) setCondiciones(cargarCondiciones());
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, []);
+
+  // AUTENTICACIÓN REAL DE ADMINISTRADOR (Supabase Auth, ver src/lib/supabase.ts).
+  // "ADMIN" en el login unificado, el botón "Demo Admin" y el ítem "Admin" de la
+  // barra inferior sólo navegan a la vista 'admin' — ya no otorgan acceso por sí
+  // solos: esa vista muestra este formulario mientras no haya sesión válida.
+  const [sesionAdmin, setSesionAdmin] = useState<SesionAdmin | null>(null);
+  const [verificandoSesionAdmin, setVerificandoSesionAdmin] = useState(true);
+  const [adminEmail, setAdminEmail] = useState('');
+  const [adminPassword, setAdminPassword] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState('');
+  const [autenticandoAdmin, setAutenticandoAdmin] = useState(false);
+
+  // Acceso de emergencia SÓLO para entornos sin Supabase configurado (VITE_ADMIN_
+  // FALLBACK_PASSWORD, ver .env.example). Es una contraseña compartida que queda
+  // visible en el bundle JS del navegador — no es autenticación real, por eso el
+  // acceso queda deshabilitado por completo si esa variable no está definida, y
+  // no debería depender de esto ningún entorno con datos reales de clientes.
+  const [fallbackAdminAutenticado, setFallbackAdminAutenticado] = useState(false);
+  const [fallbackAdminPassword, setFallbackAdminPassword] = useState('');
+  const [fallbackAdminError, setFallbackAdminError] = useState('');
+  const ADMIN_FALLBACK_PASSWORD = import.meta.env.VITE_ADMIN_FALLBACK_PASSWORD as string | undefined;
+
+  const adminAutenticado = nubeConfigurada ? !!sesionAdmin : fallbackAdminAutenticado;
+
+  useEffect(() => {
+    if (!nubeConfigurada) {
+      setVerificandoSesionAdmin(false);
+      return;
+    }
+    obtenerSesionAdminActual().then((sesion) => {
+      setSesionAdmin(sesion);
+      setVerificandoSesionAdmin(false);
+    });
+    return suscribirseASesionAdmin(setSesionAdmin);
+  }, []);
+
+  const handleAdminLoginSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminEmail.trim() || !adminPassword) {
+      setAdminLoginError('Ingresá tu email y contraseña de administrador.');
+      return;
+    }
+    setAdminLoginError('');
+    setAutenticandoAdmin(true);
+    const resultado = await iniciarSesionAdmin(adminEmail.trim(), adminPassword);
+    setAutenticandoAdmin(false);
+
+    if (!resultado.ok) {
+      setAdminLoginError(resultado.error || 'No se pudo iniciar sesión.');
+      return;
+    }
+    setAdminPassword('');
+  };
+
+  const handleFallbackAdminSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!ADMIN_FALLBACK_PASSWORD) {
+      setFallbackAdminError('El acceso de administrador no está disponible en este entorno: configurá Supabase o VITE_ADMIN_FALLBACK_PASSWORD.');
+      return;
+    }
+    if (fallbackAdminPassword === ADMIN_FALLBACK_PASSWORD) {
+      setFallbackAdminAutenticado(true);
+      setFallbackAdminPassword('');
+      setFallbackAdminError('');
+      return;
+    }
+    setFallbackAdminError('Contraseña incorrecta.');
+  };
+
+  const handleAdminLogout = async () => {
+    await cerrarSesionAdmin();
+    setFallbackAdminAutenticado(false);
+    setView('home');
+  };
+
   const [mostrarContacto, setMostrarContacto] = useState(false);
   const [mostrarLicitaciones, setMostrarLicitaciones] = useState(false);
   const [mostrarModelos, setMostrarModelos] = useState(false);
@@ -202,6 +336,9 @@ export default function App() {
 
     setLoginError('');
     if (query === 'ADMIN') {
+      // Sólo navega a la vista 'admin' — el acceso real ahora lo exige el
+      // formulario de autenticación que se muestra ahí (ver useState de
+      // sesionAdmin más arriba), no esta comparación de texto.
       setClienteActivo(null);
       setView('admin');
       return;
@@ -219,65 +356,103 @@ export default function App() {
     setView('cliente');
   };
 
+  // CATÁLOGO POR VERSIÓN: aplica en vivo el precio/plan/ficha técnica cargados en
+  // Gestión Comercial & Precios sobre la versión principal de cada familia (ver
+  // VERSION_PRINCIPAL_POR_FAMILIA); el resto de las versiones del catálogo completo
+  // quedan igual que en VERSIONES_POR_MODELO_BASE.
+  const versionesPorModelo = useMemo(() => {
+    const resultado: Record<string, VersionVehiculo[]> = {};
+    for (const familia of Object.keys(VERSIONES_POR_MODELO_BASE)) {
+      const nombrePrincipal = VERSION_PRINCIPAL_POR_FAMILIA[familia];
+      const vehiculo = condiciones.vehiculos[familia];
+      const plan = vehiculo ? obtenerPlanDestacado(vehiculo) : null;
+      resultado[familia] = VERSIONES_POR_MODELO_BASE[familia].map((v) => {
+        if (!vehiculo || !plan || v.nombre !== nombrePrincipal) return v;
+        return {
+          ...v,
+          motor: vehiculo.fichaTecnica.motor,
+          transmision: vehiculo.fichaTecnica.transmision,
+          traccion: vehiculo.fichaTecnica.traccion,
+          consumo: vehiculo.fichaTecnica.consumo,
+          baul: vehiculo.fichaTecnica.baul,
+          equipamiento: vehiculo.fichaTecnica.equipamiento,
+          tipoPlan: `Plan ${formatModalidadPct(plan.modalidadPct)} en ${plan.plazoCuotas} Cuotas`,
+          cuota: formatearMoneda(plan.valorCuota1),
+        };
+      });
+    }
+    return resultado;
+  }, [condiciones]);
+
+  // Datos del plan destacado de una familia, ya formateados para la Vitrina
+  // Comercial (planRatio/cuotasTotales/valorMovil/cuota1Estimada/bonificación).
+  const datosComercialesVitrina = (familia: string) => {
+    const vehiculo = condiciones.vehiculos[familia];
+    const plan = obtenerPlanDestacado(vehiculo);
+    return {
+      planRatio: plan ? formatModalidadPct(plan.modalidadPct) : '—',
+      cuotasTotales: plan?.plazoCuotas ?? 0,
+      valorMovil: vehiculo.precioLista,
+      cuota1Estimada: plan ? formatearMoneda(plan.valorCuota1) : '—',
+      bonificacionPct: vehiculo.bonificacionPct,
+      vigenciaMes: vehiculo.vigenciaMes,
+    };
+  };
+
   // VITRINA COMERCIAL "QUIERO MI 0KM": una entrada por modelo con la info comercial
   // completa (plan principal, rating, segmento, valores) que alimenta tanto la
-  // tarjeta de la vitrina como el pop-up de detalle. Los "Cuota 1" reutilizan las
-  // mismas cifras que ya se muestran en el resto de la app (Header > Modelos).
+  // tarjeta de la vitrina como el pop-up de detalle. Precio, cuota, plan y
+  // bonificación salen de Gestión Comercial & Precios (condiciones.vehiculos);
+  // rating/segmento/origen/variación mensual/adjudicación/requisitos son datos de
+  // catálogo propios de esta vitrina, no forman parte de esa configuración.
   // imgVitrina usa el fotograma 2 (get360Frame) de la versión principal de cada
   // modelo, en vez de una imagen genérica sin relación con el visor 360°.
   const vitrinaComercial: PlanVitrina[] = [
     {
       nombre: 'KWID', imgVitrina: get360Frame('Kwid Bitono', 2), segmento: 'SUV Urbano', origen: 'Brasil',
-      rating: 4.3, planRatio: '100/0', cuotasTotales: 120, valorMovil: 23100000,
-      variacionMensual: 2.4, cuota1Estimada: '$231.000',
+      rating: 4.3, ...datosComercialesVitrina('KWID'), variacionMensual: 2.4,
       adjudicacionAsegurada: { activa: false, cuota: 0 },
       requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'KARDIAN', imgVitrina: get360Frame('Kardian Evolution 156 MT', 2), segmento: 'SUV Compacta', origen: 'Brasil',
-      rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 25550000,
-      variacionMensual: 2.8, cuota1Estimada: '$245.500',
+      rating: 4.6, ...datosComercialesVitrina('KARDIAN'), variacionMensual: 2.8,
       adjudicacionAsegurada: { activa: true, cuota: 9 },
       requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'DUSTER', imgVitrina: get360Frame('Duster Intens MT', 2), segmento: 'SUV', origen: 'Argentina',
-      rating: 4.7, planRatio: '75/25', cuotasTotales: 84, valorMovil: 32480000,
-      variacionMensual: 3.1, cuota1Estimada: '$279.000',
+      rating: 4.7, ...datosComercialesVitrina('DUSTER'), variacionMensual: 3.1,
       adjudicacionAsegurada: { activa: true, cuota: 10 },
       requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'BOREAL', imgVitrina: get360Frame('Boreal Iconic', 2), segmento: 'Sedán Premium', origen: 'Brasil',
-      rating: 4.4, planRatio: '75/25', cuotasTotales: 84, valorMovil: 48900000,
-      variacionMensual: 2.3, cuota1Estimada: '$457.000',
+      rating: 4.4, ...datosComercialesVitrina('BOREAL'), variacionMensual: 2.3,
       adjudicacionAsegurada: { activa: true, cuota: 11 },
       requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'KANGOO', imgVitrina: get360Frame('Kangoo Express 5A', 2), segmento: 'Utilitario', origen: 'Argentina',
-      rating: 4.5, planRatio: '75/25', cuotasTotales: 120, valorMovil: 27200000,
-      variacionMensual: 2.9, cuota1Estimada: '$275.000',
+      rating: 4.5, ...datosComercialesVitrina('KANGOO'), variacionMensual: 2.9,
       adjudicacionAsegurada: { activa: true, cuota: 12 },
       requisitos: 'DNI, comprobante de ingresos, monotributo o constancia de CUIT (uso comercial).',
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'OROCH', imgVitrina: get360Frame('Oroch Emotion', 2), segmento: 'Pick-up Mediana', origen: 'Argentina',
-      rating: 4.6, planRatio: '75/25', cuotasTotales: 84, valorMovil: 31900000,
-      variacionMensual: 3.4, cuota1Estimada: '$285.000',
+      rating: 4.6, ...datosComercialesVitrina('OROCH'), variacionMensual: 3.4,
       adjudicacionAsegurada: { activa: true, cuota: 10 },
       requisitos: 'DNI, comprobante de ingresos y recibo de sueldo o monotributo.',
       diferimiento: 'Hasta 3 cuotas diferibles por año calendario.',
     },
     {
       nombre: 'MASTER', imgVitrina: get360Frame('Master', 2), segmento: 'Furgón', origen: 'Argentina',
-      rating: 4.2, planRatio: '75/25', cuotasTotales: 84, valorMovil: 62300000,
-      variacionMensual: 2.7, cuota1Estimada: '$587.000',
+      rating: 4.2, ...datosComercialesVitrina('MASTER'), variacionMensual: 2.7,
       adjudicacionAsegurada: { activa: true, cuota: 13 },
       requisitos: 'DNI, comprobante de ingresos, monotributo o constancia de CUIT (uso comercial/flota).',
       diferimiento: 'Hasta 2 cuotas diferibles por año calendario.',
@@ -418,7 +593,7 @@ export default function App() {
                       onClick={() => setView('admin')}
                       className="flex-1 bg-black/40 hover:bg-black/60 border border-white/10 text-white text-xs font-bold py-2.5 px-3 rounded-xl transition-colors flex items-center justify-center gap-1.5"
                     >
-                      <ShieldCheck className="h-4 w-4 text-yellow-500" /> Demo Admin
+                      <ShieldCheck className="h-4 w-4 text-yellow-500" /> Acceso Admin
                     </motion.button>
                   </div>
                 </div>
@@ -461,12 +636,14 @@ export default function App() {
                   className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl shadow-2xl border border-white/10 overflow-hidden relative"
                 >
                   <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-                  {/* Sin z-index acá a propósito: si este wrapper creara su propio contexto de
-                      apilado, la imagen de adentro (mix-blend-multiply) dejaría de "ver" la
-                      foto de fondo de la tarjeta y el blanco se volvería a mostrar sólido. */}
                   <div className="relative flex flex-col h-full">
-                    {/* Badges superior derecho: relación de plan + cantidad de cuotas */}
+                    {/* Badges superior derecho: relación de plan + cantidad de cuotas + bonificación vigente */}
                     <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">
+                      {auto.bonificacionPct > 0 && (
+                        <span className="bg-red-600 text-white text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg flex items-center gap-1">
+                          <Tag className="h-3 w-3" /> {auto.bonificacionPct}% OFF
+                        </span>
+                      )}
                       <span className="bg-yellow-500 text-gray-900 text-[10px] font-black px-2.5 py-1 rounded-full shadow-lg">
                         Plan: {auto.planRatio}
                       </span>
@@ -479,7 +656,7 @@ export default function App() {
                       <img
                         src={auto.imgVitrina}
                         alt={auto.nombre}
-                        className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
+                        className="max-h-full max-w-full object-contain drop-shadow-xl"
                         draggable={false}
                       />
                     </div>
@@ -570,7 +747,115 @@ export default function App() {
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
           >
-            <DashboardAdmin />
+            {verificandoSesionAdmin ? (
+              <div className="flex items-center justify-center h-[40vh] text-gray-400 gap-2">
+                <Loader2 className="h-5 w-5 animate-spin" /> Verificando sesión...
+              </div>
+            ) : adminAutenticado ? (
+              <div>
+                <div className="max-w-7xl mx-auto flex justify-end px-4 sm:px-0 mb-3">
+                  <motion.button
+                    whileHover={{ scale: 1.03 }}
+                    whileTap={{ scale: 0.97 }}
+                    onClick={handleAdminLogout}
+                    className="flex items-center gap-1.5 text-xs font-bold text-gray-400 hover:text-white bg-white/5 hover:bg-white/10 border border-white/10 px-3 py-2 rounded-xl transition-colors"
+                  >
+                    <LogOut className="h-3.5 w-3.5" /> Cerrar sesión{sesionAdmin?.email ? ` (${sesionAdmin.email})` : ''}
+                  </motion.button>
+                </div>
+                <DashboardAdmin />
+              </div>
+            ) : (
+              <div className="flex items-center justify-center min-h-[60vh] px-4">
+                <motion.div
+                  initial={{ opacity: 0, y: 12 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.3, ease: 'easeOut' }}
+                  className="bg-gray-900/80 backdrop-blur-xl rounded-3xl p-6 sm:p-8 shadow-2xl border border-white/10 w-full max-w-md"
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <ShieldCheck className="h-6 w-6 text-yellow-500" />
+                    <h2 className="text-xl font-black text-white">Acceso de Administrador</h2>
+                  </div>
+                  <p className="text-gray-400 text-sm font-medium mb-6">
+                    {nubeConfigurada
+                      ? 'Ingresá con tu cuenta de administrador de Ruiz Automotores.'
+                      : 'La nube no está configurada en este entorno — ingresá la credencial de emergencia.'}
+                  </p>
+
+                  {nubeConfigurada ? (
+                    <form onSubmit={handleAdminLoginSubmit} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Email</label>
+                        <input
+                          type="email"
+                          value={adminEmail}
+                          onChange={(e) => { setAdminEmail(e.target.value); setAdminLoginError(''); }}
+                          placeholder="admin@ruizautomotores.com.ar"
+                          autoComplete="username"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-base font-bold outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/30 transition-all text-white placeholder:text-gray-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Contraseña</label>
+                        <input
+                          type="password"
+                          value={adminPassword}
+                          onChange={(e) => { setAdminPassword(e.target.value); setAdminLoginError(''); }}
+                          placeholder="••••••••"
+                          autoComplete="current-password"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-base font-bold outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/30 transition-all text-white placeholder:text-gray-500"
+                        />
+                      </div>
+                      {adminLoginError && <p className="text-red-400 text-xs font-bold ml-1">{adminLoginError}</p>}
+                      <motion.button
+                        whileHover={{ scale: autenticandoAdmin ? 1 : 1.02 }}
+                        whileTap={{ scale: autenticandoAdmin ? 1 : 0.97 }}
+                        type="submit"
+                        disabled={autenticandoAdmin}
+                        className="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 py-4 rounded-2xl font-black transition-colors shadow-lg flex items-center justify-center gap-2 disabled:opacity-70 disabled:cursor-wait"
+                      >
+                        {autenticandoAdmin ? (
+                          <>Verificando... <Loader2 className="h-5 w-5 animate-spin" /></>
+                        ) : (
+                          <>Ingresar <Lock className="h-5 w-5" /></>
+                        )}
+                      </motion.button>
+                    </form>
+                  ) : (
+                    <form onSubmit={handleFallbackAdminSubmit} className="space-y-4">
+                      <div>
+                        <label className="block text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Credencial de Emergencia</label>
+                        <input
+                          type="password"
+                          value={fallbackAdminPassword}
+                          onChange={(e) => { setFallbackAdminPassword(e.target.value); setFallbackAdminError(''); }}
+                          placeholder="••••••••"
+                          autoComplete="off"
+                          className="w-full bg-white/5 border border-white/10 rounded-2xl px-5 py-4 text-base font-bold outline-none focus:border-yellow-500 focus:ring-2 focus:ring-yellow-500/30 transition-all text-white placeholder:text-gray-500"
+                        />
+                      </div>
+                      {fallbackAdminError && <p className="text-red-400 text-xs font-bold ml-1">{fallbackAdminError}</p>}
+                      <motion.button
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.97 }}
+                        type="submit"
+                        className="w-full bg-yellow-500 hover:bg-yellow-400 text-gray-900 py-4 rounded-2xl font-black transition-colors shadow-lg flex items-center justify-center gap-2"
+                      >
+                        Ingresar <Lock className="h-5 w-5" />
+                      </motion.button>
+                    </form>
+                  )}
+
+                  <button
+                    onClick={() => setView('home')}
+                    className="flex items-center gap-2 text-gray-500 hover:text-white font-bold text-xs mt-6 mx-auto transition-colors"
+                  >
+                    <ChevronLeft className="h-4 w-4" /> Volver al inicio
+                  </button>
+                </motion.div>
+              </div>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -691,7 +976,7 @@ export default function App() {
                                   className="w-full flex items-center gap-3 bg-white/5 hover:bg-yellow-500/10 border border-white/10 hover:border-yellow-500 rounded-xl px-3 py-2.5 transition-colors text-left"
                                 >
                                   <div className="h-12 w-12 shrink-0 bg-gray-100 rounded-lg flex items-center justify-center p-1 border border-white/10">
-                                    <img src={version.imgPortada} alt={version.nombre} className="max-h-full max-w-full object-contain mix-blend-multiply" />
+                                    <img src={version.imgPortada} alt={version.nombre} className="max-h-full max-w-full object-contain" />
                                   </div>
                                   <div className="flex-1 min-w-0">
                                     <p className="text-sm font-black text-white truncate">{version.nombre}</p>
@@ -740,7 +1025,6 @@ export default function App() {
               {/* Contenedor del Visor 360° — foto de la Casa Central (Av. Perón) de fondo */}
               <div className="flex-1 w-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl relative overflow-hidden p-3">
                 <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-                {/* Sin z-index: mantiene el mix-blend-multiply de adentro viendo la foto de fondo */}
                 <div className="relative">
                   <VisorVersion360 key={versionFicha.nombre} version={versionFicha} autoGirar />
                 </div>
@@ -846,7 +1130,7 @@ export default function App() {
                   <img
                     src={planDetalle.imgVitrina}
                     alt={planDetalle.nombre}
-                    className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-xl"
+                    className="max-h-full max-w-full object-contain drop-shadow-xl"
                     draggable={false}
                   />
                 </div>
@@ -855,6 +1139,11 @@ export default function App() {
                   <EstrellasRating valor={planDetalle.rating} />
                 </div>
                 <div className="flex flex-wrap gap-2">
+                  {planDetalle.bonificacionPct > 0 && (
+                    <span className="bg-red-600 text-white text-[11px] font-black px-3 py-1.5 rounded-full flex items-center gap-1">
+                      <Tag className="h-3.5 w-3.5" /> {planDetalle.bonificacionPct}% OFF
+                    </span>
+                  )}
                   <span className="bg-yellow-500 text-gray-900 text-[11px] font-black px-3 py-1.5 rounded-full">
                     Plan: {planDetalle.planRatio}
                   </span>
@@ -925,6 +1214,15 @@ export default function App() {
                         <p className="text-[10px] font-bold text-yellow-500/80 uppercase tracking-wide mb-1">Valor Estimado Cuota 1</p>
                         <p className="text-2xl font-black text-yellow-400">{planDetalle.cuota1Estimada}</p>
                       </div>
+                      {planDetalle.bonificacionPct > 0 && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 flex items-center gap-3">
+                          <Tag className="h-5 w-5 text-red-400 shrink-0" />
+                          <div>
+                            <p className="text-sm font-black text-red-300">{planDetalle.bonificacionPct}% de bonificación vigente</p>
+                            <p className="text-xs text-red-300/70 font-medium">Promo válida: {planDetalle.vigenciaMes}</p>
+                          </div>
+                        </div>
+                      )}
                     </motion.div>
                   ) : (
                     <motion.div

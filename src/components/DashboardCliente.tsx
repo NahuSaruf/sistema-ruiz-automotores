@@ -1,11 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   Award, CreditCard, Download, AlertTriangle, Info, Trophy, Lock, Bot, Phone, Send, X, User, MapPin, Mail, FileText, MessageSquare, ExternalLink, Sparkles, Play, Pause, Search, Cloud, Settings, Fuel, Package, Gauge, Activity, Briefcase
 } from 'lucide-react';
-import { CONDICIONES_STORAGE_KEY, cargarCondiciones } from '../utils/condicionesComerciales';
-import { ClienteCartera } from '../utils/excelParser';
-import { nubeConfigurada } from '../lib/supabase';
+import { CONDICIONES_STORAGE_KEY, cargarCondiciones, guardarCondiciones, formatModalidadPct, obtenerPlanDestacado, identificarFamilia } from '../utils/condicionesComerciales';
+import { ClienteCartera, GrupoInvitado, cargarGruposInvitados, cargarAdjudicados } from '../utils/excelParser';
+import { nubeConfigurada, obtenerCondicionesDeNube, buscarGruposInvitadosPorGrupoEnNube } from '../lib/supabase';
 import { TOTAL_FOTOS_360, get360Frame, get360Cover } from '../utils/assets';
 
 interface Props {
@@ -14,17 +14,25 @@ interface Props {
 }
 
 // Mismo nombre de versión que usa App.tsx (versionesPorModelo.KARDIAN) — resuelve
-// al mismo prefijo de archivo real vía src/utils/assets.ts.
+// al mismo prefijo de archivo real vía src/utils/assets.ts. La ficha técnica en sí
+// (motor, transmisión, etc.) ya no está hardcodeada acá: sale de
+// condiciones.vehiculos.KARDIAN.fichaTecnica, la misma fuente única de verdad que
+// edita el Administrador en "Gestión Comercial & Precios" — ver CARACTERISTICAS_KARDIAN
+// más abajo, dentro del componente.
 const KARDIAN_VERSION_NOMBRE = 'Kardian Evolution 156 MT';
 
-const CARACTERISTICAS_KARDIAN: { Icono: typeof Settings; label: string; valor: string }[] = [
-  { Icono: Settings, label: 'Motor', valor: '1.6 SCe 156cv' },
-  { Icono: Gauge, label: 'Transmisión', valor: 'Manual 5v' },
-  { Icono: Activity, label: 'Tracción', valor: '4x2' },
-  { Icono: Fuel, label: 'Consumo', valor: '14.5 km/l' },
-  { Icono: Briefcase, label: 'Baúl', valor: '410 litros' },
-  { Icono: Package, label: 'Equipamiento Clave', valor: 'Pantalla 7" Android Auto/CarPlay, cámara trasera' },
-];
+// Compartido entre la tarjeta "Estado de Cuenta" y las respuestas de Rombito AI,
+// para que el chatbot nunca diga algo distinto de lo que el cliente ya ve en pantalla.
+const PROXIMO_VENCIMIENTO_FECHA = '10 de Septiembre';
+const PUNTOS_RUIZ_SALDO = 2450;
+const SUCURSALES_RUIZ = ['Yerba Buena', '24 de Septiembre', 'Mi Auto Ya!'];
+
+// ROMBITO AI — accesos rápidos con respuesta exacta (en vez de la clasificación
+// genérica por palabra clave de responderRombito/clasificarIntencion más abajo).
+const PREGUNTA_VENCIMIENTO = '¿Cuándo vence mi cuota?';
+const PREGUNTA_PUNTOS = '¿Cómo canjeo mis Puntos Ruiz?';
+const PREGUNTA_SUCURSALES = '¿Dónde están las sucursales?';
+const PREGUNTA_LICITAR = '¿Cómo licito?';
 
 export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: Props) {
   const [mostrarModalPagos, setMostrarModalPagos] = useState(false);
@@ -42,10 +50,33 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
   const esAdjudicado = !!clienteActivo?.mesAdjudicacion;
   const mesAdjudicacion = clienteActivo?.mesAdjudicacion;
 
-  // CONDICIONES COMERCIALES (precios/promos editados desde el Panel Admin)
+  // CAMBIO DE MODELO EN LA ADJUDICACIÓN: si el modelo que el cliente recibió al
+  // adjudicarse es de una familia distinta a la que suscribió, es porque su modelo
+  // original no tenía stock disponible ese acto (dato real del reporte de
+  // Adjudicados, no una suposición). Sólo se compara por familia (no por versión
+  // exacta) y sólo cuenta si ambas resuelven a una de las 9 familias trackeadas,
+  // para no marcar una sustitución falsa por texto no reconocido.
+  const adjudicadoDelCliente = cargarAdjudicados().find((a) => a.grupoOrden === grupoOrden);
+  const familiaSuscripta = adjudicadoDelCliente ? identificarFamilia(adjudicadoDelCliente.modeloSuscripto) : null;
+  const familiaAdjudicada = adjudicadoDelCliente ? identificarFamilia(adjudicadoDelCliente.modeloAdjudicado) : null;
+  const modeloSustituido = !!familiaSuscripta && !!familiaAdjudicada && familiaSuscripta !== familiaAdjudicada;
+
+  // CONDICIONES COMERCIALES (precios, cuotas y fichas técnicas editados desde
+  // "Gestión Comercial & Precios" en el Panel Admin). Arranca con lo último
+  // guardado en este dispositivo y, si hay nube configurada, se actualiza con lo
+  // que haya en Supabase al entrar acá — un cliente en un dispositivo nuevo ve el
+  // precio real que cargó el Administrador, no el snapshot por defecto.
   const [condiciones, setCondiciones] = useState(() => cargarCondiciones());
 
   useEffect(() => {
+    if (nubeConfigurada) {
+      obtenerCondicionesDeNube().then((remoto) => {
+        if (remoto) {
+          guardarCondiciones(remoto);
+          setCondiciones(remoto);
+        }
+      });
+    }
     const onStorage = (e: StorageEvent) => {
       if (e.key === CONDICIONES_STORAGE_KEY) setCondiciones(cargarCondiciones());
     };
@@ -53,12 +84,57 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
+  // Ficha técnica del Kardian mostrada en "Mi Vehículo", tomada en vivo de Gestión
+  // Comercial & Precios (mismos íconos que antes, ahora con los valores editables
+  // desde el Panel Admin en vez de estar hardcodeados acá).
+  const CARACTERISTICAS_KARDIAN: { Icono: typeof Settings; label: string; valor: string }[] = useMemo(() => {
+    const ficha = condiciones.vehiculos.KARDIAN.fichaTecnica;
+    return [
+      { Icono: Settings, label: 'Motor', valor: ficha.motor },
+      { Icono: Gauge, label: 'Transmisión', valor: ficha.transmision },
+      { Icono: Activity, label: 'Tracción', valor: ficha.traccion },
+      { Icono: Fuel, label: 'Consumo', valor: ficha.consumo },
+      { Icono: Briefcase, label: 'Baúl', valor: ficha.baul },
+      { Icono: Package, label: 'Equipamiento Clave', valor: ficha.equipamiento },
+    ];
+  }, [condiciones]);
+
+  // Plan destacado del Kardian (puede haber varios vigentes a la vez — éste es el
+  // que se muestra en "Estado de Cuenta"), ver Gestión Comercial & Precios.
+  const planKardianDestacado = obtenerPlanDestacado(condiciones.vehiculos.KARDIAN);
+
   // VISOR 360° CON GIRO AUTOMÁTICO (8 fotogramas universales, ver src/utils/assets.ts)
   // Sólo animación en bucle + botón de Pausa/Play — sin arrastre manual.
   const [rotacion, setRotacion] = useState(1);
   const [autoGirar, setAutoGirar] = useState(true);
 
-  const grupoHabilitadoLicitacion = true; 
+  // GRUPOS INVITADOS A LICITAR (reporte real "Grupos Invitados Acto <N>", cargado
+  // por el Admin en la pestaña Licitaciones) — reemplaza el flag que antes estaba
+  // fijo en `true` para todo el mundo. Arranca con el respaldo local y, si hay nube
+  // configurada, se refresca con una consulta puntual a Supabase por este mismo
+  // grupoOrden (no toda la tabla) para que un cliente en un dispositivo nuevo vea
+  // su estado real.
+  const [gruposInvitadosLocal, setGruposInvitadosLocal] = useState<GrupoInvitado[]>(() => cargarGruposInvitados());
+
+  useEffect(() => {
+    if (!nubeConfigurada || !grupoOrden) return;
+    buscarGruposInvitadosPorGrupoEnNube(grupoOrden).then((remotos) => {
+      if (remotos && remotos.length > 0) {
+        setGruposInvitadosLocal((prev) => [...prev.filter((g) => g.grupoOrden !== grupoOrden), ...remotos]);
+      }
+    });
+  }, [grupoOrden]);
+
+  // Sólo cuenta la invitación del acto más reciente cargado — una invitación de
+  // meses atrás no debería seguir mostrando "habilitado" para siempre.
+  const actoMasRecienteInvitados = gruposInvitadosLocal.reduce((max, g) => {
+    const n = Number(g.acto);
+    return Number.isFinite(n) && n > max ? n : max;
+  }, 0);
+  const invitacionVigente = gruposInvitadosLocal.find(
+    (g) => g.grupoOrden === grupoOrden && Number(g.acto) === actoMasRecienteInvitados
+  );
+  const grupoHabilitadoLicitacion = !!invitacionVigente;
 
   const [menuRombitoAbierto, setMenuRombitoAbierto] = useState(false);
   const [chatRombitoAbierto, setChatRombitoAbierto] = useState(false);
@@ -135,6 +211,22 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
     return `Todavía estoy aprendiendo a responder esa consulta puntual. Te dejo derivado para que un asesor lo revise.\n\n🏷️ Etiqueta: ${tag}${sufijoHorario()}`;
   };
 
+  // ROMBITO AI — Accesos rápidos con dato exacto de la ficha del cliente en pantalla,
+  // en vez de una respuesta genérica por palabra clave. `null` si el texto no matchea
+  // ninguno de estos accesos rápidos (sigue el flujo normal de responderRombito).
+  const respuestaAccesoRapido = (texto: string): string | null => {
+    if (texto === PREGUNTA_VENCIMIENTO) {
+      return `Tu próximo vencimiento es el ${PROXIMO_VENCIMIENTO_FECHA} 📅. Podés ver el detalle completo o bajar tu talón desde "Estado de Cuenta".`;
+    }
+    if (texto === PREGUNTA_PUNTOS) {
+      return `Tenés ${PUNTOS_RUIZ_SALDO.toLocaleString('es-AR')} Puntos Ruiz acumulados 🎁. Se suman con cada cuota paga y los podés canjear por accesorios, service o descuentos en tu próxima cuota — pedile el canje a tu asesor o consultalo en el mostrador de Ruiz Automotores.`;
+    }
+    if (texto === PREGUNTA_SUCURSALES) {
+      return `Nuestras sucursales oficiales son: 📍 ${SUCURSALES_RUIZ.join(', ')}.`;
+    }
+    return null;
+  };
+
   // ROMBITO AI — Comandos secretos de uso interno (empiezan con "!")
   const responderComandoInterno = (comandoRaw: string): string => {
     const comando = comandoRaw.trim().toLowerCase();
@@ -178,8 +270,28 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
         return;
       }
 
-      // 3. Identidad validada: clasificar, responder y/o derivar
-      setHistorialChat(prev => [...prev, { emisor: 'rombito', texto: responderRombito(texto) }]);
+      // 3. Identidad validada: "¿Cómo licito?" es una acción (abre el modal de Oferta
+      // Rápida de Licitación de la agencia), no sólo una respuesta de texto — respeta
+      // la misma condición que ya usa el botón "Oferta Rápida de Licitación" de la
+      // tarjeta "Estado de Cuenta".
+      if (texto === PREGUNTA_LICITAR) {
+        if (grupoHabilitadoLicitacion) {
+          setHistorialChat(prev => [...prev, {
+            emisor: 'rombito',
+            texto: 'Te abro el formulario de Oferta Rápida de Licitación de Ruiz Automotores 🏆.'
+          }]);
+          onIrALicitaciones?.();
+        } else {
+          setHistorialChat(prev => [...prev, {
+            emisor: 'rombito',
+            texto: 'Tu grupo no está habilitado para licitar este mes 🔒. Te avisamos apenas se habilite.'
+          }]);
+        }
+        return;
+      }
+
+      // 4. Accesos rápidos con dato exacto, o clasificación genérica y derivación
+      setHistorialChat(prev => [...prev, { emisor: 'rombito', texto: respuestaAccesoRapido(texto) ?? responderRombito(texto) }]);
     }, 900);
   };
 
@@ -217,7 +329,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             <img
               src={get360Frame('Boreal Evolution', 2)}
               alt="Nuevo Renault Boreal"
-              className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
+              className="max-h-full max-w-full object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
@@ -228,7 +340,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             <img
               src={get360Frame('Koleos Techno', 2)}
               alt="Nuevo Renault Koleos"
-              className="max-h-full max-w-full object-contain mix-blend-multiply drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
+              className="max-h-full max-w-full object-contain drop-shadow-[0_20px_25px_rgba(0,0,0,0.5)] group-hover:scale-105 transition-transform duration-500"
               onError={(e) => {
                 const target = e.target as HTMLImageElement;
                 target.style.display = 'none';
@@ -349,7 +461,6 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-2xl shadow-2xl border border-white/10 relative overflow-hidden h-[420px]"
           >
             <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
-            {/* Sin z-index: mantiene el mix-blend-multiply del auto viendo la foto de fondo */}
             <div className="relative h-full p-6 sm:p-8 flex flex-col items-center justify-center">
               <div className="absolute top-6 left-6 right-6 flex justify-between items-center">
                 <h2 className="text-xl font-black text-white">Mi Vehículo (Kardian 360°)</h2>
@@ -369,7 +480,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
                     src={get360Frame(KARDIAN_VERSION_NOMBRE, rotacion)}
                     alt="Auto 360"
                     draggable={false}
-                    className="absolute inset-0 w-full h-full object-contain mix-blend-multiply drop-shadow-xl transition-none pointer-events-none select-none"
+                    className="absolute inset-0 w-full h-full object-contain drop-shadow-xl transition-none pointer-events-none select-none"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
                       if (target.dataset.fallback !== '1') {
@@ -538,7 +649,11 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             <div className="bg-white/5 rounded-2xl p-4 border border-white/10 mb-5 space-y-3">
               <div className="flex justify-between items-center border-b border-white/10 pb-2">
                 <span className="text-xs font-bold text-gray-400 uppercase">Plan Suscripto</span>
-                <span className="text-sm font-black text-white">{condiciones.planDestacado}</span>
+                <span className="text-sm font-black text-white">
+                  {planKardianDestacado
+                    ? `${condiciones.vehiculos.KARDIAN.nombre} ${formatModalidadPct(planKardianDestacado.modalidadPct)} (${planKardianDestacado.plazoCuotas} Cuotas)`
+                    : condiciones.vehiculos.KARDIAN.nombre}
+                </span>
               </div>
               <div className="flex justify-between items-center border-b border-white/10 pb-2">
                 <span className="text-xs font-bold text-gray-400 uppercase">Modalidad</span>
@@ -546,25 +661,37 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
               </div>
               <div className="flex justify-between items-center">
                 <span className="text-xs font-bold text-gray-400 uppercase">Medio de Pago</span>
-                <div className="flex items-center gap-1.5">
-                  <span className="bg-blue-900 text-white text-[9px] font-black px-1.5 py-0.5 rounded uppercase tracking-wide">VISA</span>
-                  <span className="text-sm font-bold text-white">**** 4589</span>
-                </div>
+                <span className="text-sm font-bold text-white">Tarjeta de Crédito</span>
               </div>
             </div>
             <div className="bg-red-500/10 border border-red-500/30 rounded-2xl p-4 mb-5 text-center">
               <span className="text-sm font-semibold text-red-300 block mb-1">Próximo Vencimiento</span>
-              <span className="text-3xl font-black text-red-400">{condiciones.cuotaDestacada}</span>
+              <span className="text-3xl font-black text-red-400">{PROXIMO_VENCIMIENTO_FECHA}</span>
             </div>
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-4 mb-5">
               <div className="flex items-center gap-1.5 mb-1.5">
                 <Info className="h-4 w-4 text-blue-400" />
-                <h4 className="text-xs font-bold text-blue-300 uppercase tracking-wide">Último Sorteo (Grupo)</h4>
+                <h4 className="text-xs font-bold text-blue-300 uppercase tracking-wide">Última Invitación del Grupo</h4>
               </div>
               <p className="text-sm text-blue-200 font-medium leading-relaxed">
-                El vehículo del mes se adjudicó mediante <strong>Licitación con 35 cuotas ofertadas</strong>.
+                {invitacionVigente
+                  ? <>Última invitación del grupo: <strong>Acto {invitacionVigente.acto}</strong> ({invitacionVigente.fechaWeb}) para <strong>{invitacionVigente.modelo}</strong>.</>
+                  : 'Todavía no hay ninguna invitación a licitar registrada para tu grupo.'}
               </p>
             </div>
+
+            {modeloSustituido && adjudicadoDelCliente && (
+              <div className="bg-orange-500/10 border border-orange-500/30 rounded-2xl p-4 mb-5">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <AlertTriangle className="h-4 w-4 text-orange-400" />
+                  <h4 className="text-xs font-bold text-orange-300 uppercase tracking-wide">Cambio de Modelo en tu Adjudicación</h4>
+                </div>
+                <p className="text-sm text-orange-200 font-medium leading-relaxed">
+                  Al momento de la adjudicación, <strong>{adjudicadoDelCliente.modeloSuscripto}</strong> no tenía stock
+                  disponible, así que recibiste <strong>{adjudicadoDelCliente.modeloAdjudicado}</strong> como alternativa.
+                </p>
+              </div>
+            )}
 
             {/* BOTONES OFICIALES */}
             <div className="grid grid-cols-2 gap-3 mb-4">
@@ -873,26 +1000,34 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => enviarMensajeRombito('¿Cómo va mi cuota?')}
+                onClick={() => enviarMensajeRombito(PREGUNTA_VENCIMIENTO)}
                 className="text-[11px] font-bold bg-white/10 border border-white/10 text-gray-200 px-3 py-1.5 rounded-full hover:border-yellow-500 hover:bg-yellow-500/10 hover:text-white transition-colors"
               >
-                💳 Mis cuotas
+                📅 ¿Cuándo vence mi cuota?
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => enviarMensajeRombito('¿Cómo participo de una licitación?')}
+                onClick={() => enviarMensajeRombito(PREGUNTA_PUNTOS)}
                 className="text-[11px] font-bold bg-white/10 border border-white/10 text-gray-200 px-3 py-1.5 rounded-full hover:border-yellow-500 hover:bg-yellow-500/10 hover:text-white transition-colors"
               >
-                🏆 Licitaciones
+                🎁 ¿Cómo canjeo mis Puntos Ruiz?
               </motion.button>
               <motion.button
                 whileHover={{ scale: 1.05 }}
                 whileTap={{ scale: 0.95 }}
-                onClick={() => enviarMensajeRombito('Quiero hablar con un asesor')}
+                onClick={() => enviarMensajeRombito(PREGUNTA_SUCURSALES)}
                 className="text-[11px] font-bold bg-white/10 border border-white/10 text-gray-200 px-3 py-1.5 rounded-full hover:border-yellow-500 hover:bg-yellow-500/10 hover:text-white transition-colors"
               >
-                👤 Hablar con un asesor
+                📍 ¿Dónde están las sucursales?
+              </motion.button>
+              <motion.button
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
+                onClick={() => enviarMensajeRombito(PREGUNTA_LICITAR)}
+                className="text-[11px] font-bold bg-white/10 border border-white/10 text-gray-200 px-3 py-1.5 rounded-full hover:border-yellow-500 hover:bg-yellow-500/10 hover:text-white transition-colors"
+              >
+                🏆 ¿Cómo licito?
               </motion.button>
             </div>
 
