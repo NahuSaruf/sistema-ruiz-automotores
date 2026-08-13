@@ -1114,15 +1114,15 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             whileHover={{ scale: 1.08 }}
             whileTap={{ scale: 0.94 }}
             onClick={() => setMenuRombitoAbierto(!menuRombitoAbierto)}
-            className="bg-gray-900 text-white p-4 sm:p-5 rounded-full shadow-2xl hover:bg-black transition-colors flex items-center justify-center group relative border-[3px] border-white/10"
+            className="bg-gray-900 text-white p-3 sm:p-4 rounded-full shadow-2xl hover:bg-black transition-colors flex items-center justify-center group relative border-[3px] border-white/10"
           >
             {menuRombitoAbierto ? (
-              <X className="h-7 w-7 sm:h-8 sm:w-8" />
+              <X className="h-6 w-6 sm:h-7 sm:w-7" />
             ) : (
               <img
                 src="/Rombito.png"
                 alt="Rombito AI"
-                className="w-10 h-10 object-contain rounded-full ring-2 ring-yellow-500/70 animate-pulse"
+                className="w-8 h-8 object-contain rounded-full ring-2 ring-yellow-500/70 animate-pulse"
               />
             )}
             {!menuRombitoAbierto && (
