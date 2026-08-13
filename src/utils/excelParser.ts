@@ -482,6 +482,114 @@ export const combinarMejoresOfertasConConteo = (
   return { resultado, agregados, omitidos };
 };
 
+// ==== GRUPOS INVITADOS A LICITAR (reporte real "Grupos Invitados Acto <N>") ====
+//
+// Reemplaza el flag `grupoHabilitadoLicitacion` hardcodeado que tenía
+// DashboardCliente.tsx: si el Grupo y Orden del cliente aparece acá para el acto
+// vigente, está habilitado para licitar este mes — si no, no. El reporte real trae
+// más columnas de las que usamos (Deudor y Nom co car son siempre el mismo
+// concesionario en todas las filas; no se guarda el email del titular acá para no
+// acumular ese dato sin necesidad).
+
+export const GRUPOS_INVITADOS_STORAGE_KEY = 'grupos_invitados_ruiz';
+
+export interface GrupoInvitado {
+  acto: string;
+  fechaWeb: string;
+  grupoOrden: string; // "ContratoPR" en el reporte
+  titular: string;
+  porcentajeFinancia: string;
+  modelo: string; // "Descripción Modelo"
+  ofertaComercial: string; // "Descripción oferta comercial"
+  ultimaCuota: string; // "Últ Cuota"
+  cuotaLicitacion: string; // "Cuota lic"
+}
+
+export const procesarGruposInvitados = (fileBuffer: ArrayBuffer): GrupoInvitado[] => {
+  const workbook = XLSX.read(fileBuffer, { type: 'array' });
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const filas: unknown[][] = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: '' });
+
+  // El archivo real trae varias filas de encabezado de reporte (fecha, título)
+  // antes de la fila con los nombres de columna reales — se busca esa fila por
+  // contenido ("ContratoPR" es la columna del Grupo y Orden) en vez de asumir un
+  // índice fijo, porque esas filas previas varían de longitud entre actos.
+  const indiceEncabezado = filas.findIndex((fila) =>
+    fila.some((c) => String(c ?? '').trim().toUpperCase() === 'CONTRATOPR')
+  );
+  if (indiceEncabezado === -1) return [];
+
+  const encabezados = (filas[indiceEncabezado] as unknown[]).map((h) => String(h ?? '').trim().toUpperCase());
+  const indiceDe = (posibles: string[]): number =>
+    encabezados.findIndex((h) => posibles.some((p) => h === p.toUpperCase() || h.includes(p.toUpperCase())));
+
+  const idxActo = indiceDe(['ACTO']);
+  const idxFecha = indiceDe(['FECHA WEB', 'FECHA']);
+  const idxGrupo = indiceDe(['CONTRATOPR']);
+  const idxTitular = indiceDe(['NOMBRE DEL TITULAR', 'TITULAR']);
+  const idxFinancia = indiceDe(['% FINANCIA', 'FINANCIA']);
+  const idxModelo = indiceDe(['DESCRIPCION MODELO', 'MODELO']);
+  const idxOferta = indiceDe(['DESCRIPCION OFERTA COMERCIAL', 'OFERTA COMERCIAL']);
+  const idxUltCuota = indiceDe(['ULT CUOTA', 'ÚLT CUOTA']);
+  const idxCuotaLic = indiceDe(['CUOTA LIC']);
+
+  const val = (fila: unknown[], idx: number): string => (idx >= 0 ? String(fila[idx] ?? '').trim() : '');
+
+  const filasDeDatos = filas
+    .slice(indiceEncabezado + 1)
+    .filter((fila) => fila.some((celda) => String(celda ?? '').trim() !== ''));
+
+  return filasDeDatos
+    .map((fila): GrupoInvitado => ({
+      acto: val(fila, idxActo),
+      fechaWeb: val(fila, idxFecha),
+      grupoOrden: val(fila, idxGrupo).toUpperCase(),
+      titular: val(fila, idxTitular),
+      porcentajeFinancia: val(fila, idxFinancia),
+      modelo: val(fila, idxModelo),
+      ofertaComercial: val(fila, idxOferta),
+      ultimaCuota: val(fila, idxUltCuota),
+      cuotaLicitacion: val(fila, idxCuotaLic),
+    }))
+    .filter((g) => g.grupoOrden);
+};
+
+export const cargarGruposInvitados = (): GrupoInvitado[] => {
+  try {
+    const guardado = localStorage.getItem(GRUPOS_INVITADOS_STORAGE_KEY);
+    return guardado ? JSON.parse(guardado) : [];
+  } catch {
+    return [];
+  }
+};
+
+export const guardarGruposInvitados = (grupos: GrupoInvitado[]): void => {
+  localStorage.setItem(GRUPOS_INVITADOS_STORAGE_KEY, JSON.stringify(grupos));
+};
+
+// Combina el histórico sumando sólo los actos nuevos (identificados por acto +
+// grupoOrden, no sólo por grupoOrden, porque el mismo grupo puede aparecer
+// invitado en distintos actos a lo largo del tiempo).
+export const combinarGruposInvitadosConConteo = (
+  existentes: GrupoInvitado[],
+  nuevos: GrupoInvitado[]
+): { resultado: GrupoInvitado[]; agregados: number; omitidos: number } => {
+  const resultado = [...existentes];
+  let agregados = 0;
+  let omitidos = 0;
+  nuevos.forEach((nuevo) => {
+    const yaExiste = resultado.some((g) => g.grupoOrden === nuevo.grupoOrden && g.acto === nuevo.acto);
+    if (yaExiste) {
+      omitidos++;
+    } else {
+      resultado.push(nuevo);
+      agregados++;
+    }
+  });
+  return { resultado, agregados, omitidos };
+};
+
 // ==== FORMATO DUAL DE NOMBRES DE VEHÍCULO (Vista Admin vs Vista Cliente) ====
 
 // Mapea el código de material SAP al nombre técnico completo, tal como figura
