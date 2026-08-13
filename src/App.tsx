@@ -482,7 +482,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="flex items-center justify-center min-h-[75vh] flex-col gap-8 p-4 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
+            className="flex items-center justify-center min-h-full flex-col gap-8 p-4 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
           >
             <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
             <div className="text-center max-w-xl">
@@ -612,7 +612,7 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="max-w-6xl mx-auto px-4 py-10 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
+            className="max-w-6xl mx-auto px-4 py-10 relative min-h-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
           >
             <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
 
