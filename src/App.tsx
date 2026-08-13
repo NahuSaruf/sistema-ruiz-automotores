@@ -489,10 +489,10 @@ export default function App() {
               <span className="bg-black/40 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
                 Ruiz Automotores - Plan Rombo
               </span>
-              <h2 className="text-4xl sm:text-5xl font-black text-white mb-3 tracking-tight">
+              <h2 className="text-4xl sm:text-5xl font-black text-white mb-3 tracking-tight drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]">
                 {mostrarAccesoCliente ? 'Portal de Clientes y Gestión' : '¿Qué querés hacer hoy?'}
               </h2>
-              <p className="text-gray-400 text-base sm:text-lg font-medium">
+              <p className="text-gray-200 text-base sm:text-lg font-medium drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">
                 {mostrarAccesoCliente
                   ? 'Ingresá con tu DNI, N° de Suscripción o credencial administrativa.'
                   : 'Elegí una opción para empezar.'}
