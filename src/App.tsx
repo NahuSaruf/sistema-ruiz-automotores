@@ -460,9 +460,14 @@ export default function App() {
   ];
 
   return (
-    <div className="min-h-screen bg-[#0B0F19] flex flex-col font-sans">
-      
-      <Header 
+    <div className={`min-h-screen flex flex-col font-sans ${view === 'home' || view === 'nuevo' ? '' : 'bg-[#0B0F19]'}`}>
+      {(view === 'home' || view === 'nuevo') && (
+        <div className="fixed inset-0 -z-10 w-full h-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center bg-no-repeat">
+          <div className="absolute inset-0 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
+        </div>
+      )}
+
+      <Header
         onUserClick={() => setView('user')} 
         onHomeClick={() => { setMostrarAccesoCliente(false); setView('home'); }}
         onClienteClick={() => setMostrarSelectorCliente(true)}
@@ -482,10 +487,9 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="flex items-center justify-center min-h-full flex-col gap-8 p-4 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
+            className="flex items-center justify-center min-h-full flex-col gap-8 p-4 relative"
           >
-            <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
-            <div className="text-center max-w-xl">
+            <div className="backdrop-blur-md bg-gray-950/70 border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-w-2xl mx-auto text-center">
               <span className="bg-black/40 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
                 Ruiz Automotores - Plan Rombo
               </span>
@@ -612,10 +616,8 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="max-w-6xl mx-auto px-4 py-10 relative min-h-full bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
+            className="w-full max-w-6xl mx-auto px-4 py-10 relative min-h-full"
           >
-            <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
-
             <button
               onClick={() => setView('home')}
               className="flex items-center gap-2 text-gray-400 hover:text-white font-bold text-sm mb-6 transition-colors"
@@ -623,12 +625,12 @@ export default function App() {
               <ChevronLeft className="h-4 w-4" /> Volver al Inicio
             </button>
 
-            <div className="text-center max-w-2xl mx-auto mb-10">
+            <div className="backdrop-blur-md bg-gray-950/70 border border-white/10 rounded-3xl p-6 sm:p-8 shadow-2xl max-w-2xl mx-auto mb-10 text-center">
               <span className="bg-yellow-500/10 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
                 🚀 Quiero mi 0km
               </span>
-              <h2 className="text-3xl sm:text-4xl font-black text-white mb-2 tracking-tight">Elegí tu modelo y empezá a suscribirte</h2>
-              <p className="text-gray-400 font-medium">Planes de Ahorro Rombo, cuotas accesibles y entrega asegurada.</p>
+              <h2 className="text-3xl sm:text-4xl font-black text-white mb-2 tracking-tight drop-shadow-[0_4px_16px_rgba(0,0,0,0.9)]">Elegí tu modelo y empezá a suscribirte</h2>
+              <p className="text-gray-300 font-medium drop-shadow-[0_2px_8px_rgba(0,0,0,0.9)]">Planes de Ahorro Rombo, cuotas accesibles y entrega asegurada.</p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">

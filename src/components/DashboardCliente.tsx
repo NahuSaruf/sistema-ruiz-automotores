@@ -309,7 +309,7 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05, ease: 'easeOut' }}
         whileHover={{ y: -3 }}
-        className="max-w-7xl mx-auto mb-8 bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group"
+        className="w-full mb-8 bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group"
       >
         <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
         <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-yellow-500/20 blur-3xl" />
