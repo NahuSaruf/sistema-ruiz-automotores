@@ -486,7 +486,7 @@ export default function App() {
           >
             <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
             <div className="text-center max-w-xl">
-              <span className="bg-gray-900/80 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
+              <span className="bg-black/40 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
                 Ruiz Automotores - Plan Rombo
               </span>
               <h2 className="text-4xl sm:text-5xl font-black text-white mb-3 tracking-tight">
