@@ -309,8 +309,9 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, delay: 0.05, ease: 'easeOut' }}
         whileHover={{ y: -3 }}
-        className="max-w-7xl mx-auto mb-8 bg-gradient-to-br from-gray-900 via-black to-gray-900 rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group"
+        className="max-w-7xl mx-auto mb-8 bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl p-6 sm:p-8 text-white shadow-xl border border-white/10 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group"
       >
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
         <div className="pointer-events-none absolute -top-24 -right-24 h-64 w-64 rounded-full bg-yellow-500/20 blur-3xl" />
 
         <div className="space-y-2 max-w-lg text-center md:text-left z-20">
@@ -958,7 +959,11 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
           >
             <div className="bg-black/40 text-white p-4 flex justify-between items-center border-b border-white/10 z-10">
               <div className="flex items-center gap-3">
-                <div className="bg-yellow-500 p-2 rounded-full border-2 border-gray-800 shadow-sm"><Bot className="h-5 w-5 text-gray-900" /></div>
+                <img
+                  src="/Rombito.png"
+                  alt="Rombito AI"
+                  className="w-10 h-10 object-contain rounded-full ring-2 ring-yellow-500/70 animate-pulse"
+                />
                 <div>
                   <h3 className="font-bold text-sm tracking-wide">Rombito AI</h3>
                   <div className="flex items-center gap-1 mt-0.5">
@@ -1111,7 +1116,15 @@ export default function DashboardCliente({ clienteActivo, onIrALicitaciones }: P
             onClick={() => setMenuRombitoAbierto(!menuRombitoAbierto)}
             className="bg-gray-900 text-white p-4 sm:p-5 rounded-full shadow-2xl hover:bg-black transition-colors flex items-center justify-center group relative border-[3px] border-white/10"
           >
-            {menuRombitoAbierto ? <X className="h-7 w-7 sm:h-8 sm:w-8" /> : <Bot className="h-7 w-7 sm:h-8 sm:w-8 text-yellow-500" />}
+            {menuRombitoAbierto ? (
+              <X className="h-7 w-7 sm:h-8 sm:w-8" />
+            ) : (
+              <img
+                src="/Rombito.png"
+                alt="Rombito AI"
+                className="w-10 h-10 object-contain rounded-full ring-2 ring-yellow-500/70 animate-pulse"
+              />
+            )}
             {!menuRombitoAbierto && (
               <span className="absolute -top-1 -right-1 flex h-4 w-4">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>

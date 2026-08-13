@@ -482,8 +482,9 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="flex items-center justify-center min-h-[75vh] flex-col gap-8 p-4"
+            className="flex items-center justify-center min-h-[75vh] flex-col gap-8 p-4 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
           >
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
             <div className="text-center max-w-xl">
               <span className="bg-yellow-500/10 backdrop-blur-xl text-yellow-400 text-xs font-black px-3.5 py-1.5 rounded-full border border-yellow-500/30 tracking-wider uppercase inline-block mb-3 shadow-lg">
                 Ruiz Automotores - Plan Rombo
@@ -611,8 +612,10 @@ export default function App() {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -16 }}
             transition={{ duration: 0.35, ease: 'easeOut' }}
-            className="max-w-6xl mx-auto px-4 py-10"
+            className="max-w-6xl mx-auto px-4 py-10 relative bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl overflow-hidden"
           >
+            <div className="pointer-events-none absolute inset-0 -z-10 bg-gradient-to-b from-gray-950/80 via-gray-900/85 to-gray-950" />
+
             <button
               onClick={() => setView('home')}
               className="flex items-center gap-2 text-gray-400 hover:text-white font-bold text-sm mb-6 transition-colors"
@@ -633,9 +636,8 @@ export default function App() {
                 <motion.div
                   key={auto.nombre}
                   whileHover={{ y: -4 }}
-                  className="bg-[url('/Fondo%20Peron.png')] bg-cover bg-center rounded-3xl shadow-2xl border border-white/10 overflow-hidden relative"
+                  className="bg-gray-900/80 backdrop-blur-md rounded-3xl shadow-2xl border border-white/10 overflow-hidden relative"
                 >
-                  <div className="absolute inset-0 bg-gradient-to-t from-gray-950 via-gray-900/75 to-gray-900/50" />
                   <div className="relative flex flex-col h-full">
                     {/* Badges superior derecho: relación de plan + cantidad de cuotas + bonificación vigente */}
                     <div className="absolute top-3 right-3 z-10 flex flex-col items-end gap-1.5">

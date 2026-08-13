@@ -1105,13 +1105,13 @@ export default function DashboardAdmin() {
                 </AnimatePresence>
 
                 {!baseDatosCargada ? (
-                  <div className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border-2 border-dashed border-gray-300 text-center flex flex-col items-center justify-center min-h-[400px] transition-colors hover:border-yellow-500 hover:bg-yellow-50/50 group">
-                    <div className="bg-gray-100 p-4 rounded-full mb-6 group-hover:bg-yellow-100 transition-colors">
-                      <UploadCloud className="h-12 w-12 text-gray-400 group-hover:text-yellow-600 transition-colors" />
+                  <div className="bg-gray-900/80 backdrop-blur-md rounded-3xl p-8 sm:p-12 shadow-sm border border-gray-800 text-white text-center flex flex-col items-center justify-center min-h-[400px] transition-colors hover:border-yellow-500 group">
+                    <div className="bg-white/5 p-4 rounded-full mb-6 group-hover:bg-yellow-500/10 transition-colors">
+                      <UploadCloud className="h-12 w-12 text-gray-500 group-hover:text-yellow-500 transition-colors" />
                     </div>
-                    <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-3">Cargar Base General</h3>
-                    <p className="text-gray-500 mb-8 max-w-md mx-auto text-sm">Subí tu archivo de suscriptores (.xlsx o .csv). El sistema mapeará tus columnas exactas y sumará los registros a la cartera guardada — nunca la reemplaza.</p>
-                    <motion.label whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} className="cursor-pointer bg-gray-900 hover:bg-gray-800 text-white px-8 py-3.5 rounded-xl font-bold transition-colors shadow-md flex items-center gap-3">
+                    <h3 className="text-xl sm:text-2xl font-black text-white mb-3">Cargar Base General</h3>
+                    <p className="text-gray-400 mb-8 max-w-md mx-auto text-sm">Subí tu archivo de suscriptores (.xlsx o .csv). El sistema mapeará tus columnas exactas y sumará los registros a la cartera guardada — nunca la reemplaza.</p>
+                    <motion.label whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.97 }} className="cursor-pointer bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-8 py-3.5 rounded-xl font-bold transition-colors shadow-md flex items-center gap-3">
                       <FileSpreadsheet className="h-5 w-5" /> Seleccionar Archivo
                       <input type="file" accept=".xlsx, .xls, .csv" className="hidden" onChange={handleArchivoGeneralSeleccionado} />
                     </motion.label>
@@ -1994,16 +1994,16 @@ export default function DashboardAdmin() {
             </AnimatePresence>
 
             {!baseGruposInvitadosCargada ? (
-              <div className="bg-white rounded-3xl p-8 sm:p-12 shadow-sm border-2 border-dashed border-gray-300 text-center flex flex-col items-center justify-center min-h-[300px] transition-colors hover:border-yellow-500 hover:bg-yellow-50/50 group">
-                <div className="bg-gray-100 p-4 rounded-full mb-6 group-hover:bg-yellow-100 transition-colors">
-                  <Trophy className="h-12 w-12 text-gray-400 group-hover:text-yellow-600 transition-colors" />
+              <div className="bg-gray-900/80 backdrop-blur-md rounded-3xl p-8 sm:p-12 shadow-sm border border-gray-800 text-white text-center flex flex-col items-center justify-center min-h-[300px] transition-colors hover:border-yellow-500 group">
+                <div className="bg-white/5 p-4 rounded-full mb-6 group-hover:bg-yellow-500/10 transition-colors">
+                  <Trophy className="h-12 w-12 text-gray-500 group-hover:text-yellow-500 transition-colors" />
                 </div>
-                <h3 className="text-xl sm:text-2xl font-black text-gray-900 mb-3">Cargar "Grupos Invitados Acto"</h3>
-                <p className="text-gray-500 mb-8 max-w-md mx-auto text-sm">Subí el reporte de grupos invitados a licitar del mes (Acto, Fecha, Grupo y Orden, Titular, % Financiación, Modelo). Define qué clientes ven habilitado "Licitar" en su panel.</p>
+                <h3 className="text-xl sm:text-2xl font-black text-white mb-3">Cargar "Grupos Invitados Acto"</h3>
+                <p className="text-gray-400 mb-8 max-w-md mx-auto text-sm">Subí el reporte de grupos invitados a licitar del mes (Acto, Fecha, Grupo y Orden, Titular, % Financiación, Modelo). Define qué clientes ven habilitado "Licitar" en su panel.</p>
                 <motion.label
                   whileHover={{ scale: procesandoGruposInvitados ? 1 : 1.05 }}
                   whileTap={{ scale: procesandoGruposInvitados ? 1 : 0.97 }}
-                  className={`cursor-pointer bg-gray-900 hover:bg-black text-white px-8 py-3.5 rounded-xl font-bold transition-colors shadow-md flex items-center gap-3 ${procesandoGruposInvitados ? 'opacity-60 cursor-not-allowed' : ''}`}
+                  className={`cursor-pointer bg-yellow-500 hover:bg-yellow-400 text-gray-900 px-8 py-3.5 rounded-xl font-bold transition-colors shadow-md flex items-center gap-3 ${procesandoGruposInvitados ? 'opacity-60 cursor-not-allowed' : ''}`}
                 >
                   <RefreshCw className={`h-5 w-5 ${procesandoGruposInvitados ? 'animate-spin' : ''}`} />
                   {procesandoGruposInvitados ? 'Procesando...' : 'Seleccionar Archivo'}
