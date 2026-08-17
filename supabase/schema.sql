@@ -167,17 +167,23 @@ create policy "admins_read_admin_only"
 -- directo con Supabase usando la clave "anon" pública (VITE_SUPABASE_ANON_KEY),
 -- que queda visible en el bundle JS de la web.
 --
--- LECTURA: sigue siendo anónima y abierta (`using (true)` para anon), porque el
--- login de autoservicio del cliente (buscar su plan por DNI o Grupo y Orden en
--- App.tsx) no tiene su propia autenticación y depende de poder leer esta tabla
--- desde el navegador sin iniciar sesión. Eso significa que CUALQUIERA que tenga
--- la URL y la anon key del proyecto (visibles en el código fuente de la página)
--- puede leer todos los DNI, teléfonos, domicilios y emails de la tabla, aunque
--- ya no pueda modificarlos. Antes de cargar datos reales, lo ideal es reemplazar
--- este SELECT abierto por una Postgres function `security definer` que reciba el
--- DNI/Grupo y Orden puntual y devuelva sólo esa fila (ver nota original más abajo).
+-- LECTURA de `cartera_clientes` y `adjudicados`: YA NO es de tabla abierta a
+-- `anon` (antes cualquiera con la anon key podía leer todos los DNI, teléfonos,
+-- domicilios y emails con un SELECT sin filtro). El buscador de autoservicio del
+-- cliente (DNI o Grupo y Orden, en App.tsx vía buscarClienteEnNube/
+-- buscarAdjudicadoEnNube en src/lib/supabase.ts) ahora pasa por las funciones
+-- `security definer` `buscar_cliente_publico(p_query)` / `buscar_adjudicado_publico
+-- (p_grupo_orden)` más abajo: corren con privilegios elevados así que sí pueden
+-- leer la tabla, pero cada una sólo devuelve la fila puntual que matchea el
+-- parámetro que reciben — nunca la tabla entera. `anon` sigue sin poder hacer
+-- SELECT directo sobre estas dos tablas; sólo `authenticated` (el panel de Admin,
+-- ya logueado) puede.
 --
--- ESCRITURA: ahora requiere una sesión real de Supabase Auth (`to authenticated`)
+-- `grupos_invitados` y `condiciones_comerciales` SÍ siguen con SELECT abierto a
+-- `anon` a propósito (ver sus comentarios puntuales más abajo): no contienen DNI/
+-- teléfono/domicilio, sólo grupo+acto+fecha y el catálogo público de precios.
+--
+-- ESCRITURA: sigue requiriendo una sesión real de Supabase Auth (`to authenticated`)
 -- Y que ese usuario figure en la tabla `admins` (`is_admin_ruiz()`). Un usuario
 -- autenticado que no sea administrador no puede insertar/actualizar/borrar nada.
 -- ============================================================
@@ -189,11 +195,14 @@ alter table condiciones_comerciales enable row level security;
 
 drop policy if exists "cartera_clientes_anon_all" on cartera_clientes;
 
+-- Sólo `authenticated` (Admin ya logueado) puede leer la tabla entera con SELECT.
+-- El buscador anónimo del cliente pasa por buscar_cliente_publico() más abajo.
 drop policy if exists "cartera_clientes_read_all" on cartera_clientes;
-create policy "cartera_clientes_read_all"
+drop policy if exists "cartera_clientes_read_authenticated" on cartera_clientes;
+create policy "cartera_clientes_read_authenticated"
   on cartera_clientes
   for select
-  to anon, authenticated
+  to authenticated
   using (true);
 
 drop policy if exists "cartera_clientes_write_admin" on cartera_clientes;
@@ -220,11 +229,14 @@ create policy "cartera_clientes_delete_admin"
 
 drop policy if exists "adjudicados_anon_all" on adjudicados;
 
+-- Sólo `authenticated` (Admin ya logueado) puede leer la tabla entera con SELECT.
+-- El buscador anónimo del cliente pasa por buscar_adjudicado_publico() más abajo.
 drop policy if exists "adjudicados_read_all" on adjudicados;
-create policy "adjudicados_read_all"
+drop policy if exists "adjudicados_read_authenticated" on adjudicados;
+create policy "adjudicados_read_authenticated"
   on adjudicados
   for select
-  to anon, authenticated
+  to authenticated
   using (true);
 
 drop policy if exists "adjudicados_write_admin" on adjudicados;
@@ -248,6 +260,47 @@ create policy "adjudicados_delete_admin"
   for delete
   to authenticated
   using (is_admin_ruiz());
+
+-- ============================================================
+-- BÚSQUEDA PÚBLICA PUNTUAL (security definer) — reemplaza el SELECT abierto
+-- que antes tenían cartera_clientes/adjudicados. Cada función corre con
+-- privilegios elevados (bypassa RLS) pero su propio WHERE + LIMIT 1 garantiza
+-- que como máximo devuelve UNA fila, la que matchea el parámetro recibido —
+-- nunca la tabla entera. Usadas por buscarClienteEnNube/buscarAdjudicadoEnNube
+-- en src/lib/supabase.ts, vía supabase.rpc(...).
+-- ============================================================
+
+create or replace function buscar_cliente_publico(p_query text)
+returns setof cartera_clientes
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select *
+  from cartera_clientes
+  where dni = p_query or grupo_orden = p_query
+  limit 1;
+$$;
+
+revoke all on function buscar_cliente_publico(text) from public;
+grant execute on function buscar_cliente_publico(text) to anon, authenticated;
+
+create or replace function buscar_adjudicado_publico(p_grupo_orden text)
+returns setof adjudicados
+language sql
+security definer
+set search_path = public
+stable
+as $$
+  select *
+  from adjudicados
+  where grupo_orden = p_grupo_orden
+  limit 1;
+$$;
+
+revoke all on function buscar_adjudicado_publico(text) from public;
+grant execute on function buscar_adjudicado_publico(text) to anon, authenticated;
 
 -- grupos_invitados: lectura abierta (el cliente necesita poder chequear si su
 -- grupo está habilitado para licitar sin estar autenticado); escritura sólo Admin.

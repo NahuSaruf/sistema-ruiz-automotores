@@ -224,16 +224,17 @@ export const obtenerCarteraDeNube = async (): Promise<ClienteCartera[] | null> =
   }
 };
 
+// Vía la función `buscar_cliente_publico` (security definer, ver supabase/schema.sql)
+// en vez de un SELECT directo a la tabla: la tabla ya no es legible por `anon`, así
+// que esta es la única forma en que el buscador anónimo del cliente puede resolver
+// un DNI/Grupo y Orden — la función solo puede devolver la fila puntual que matchea,
+// nunca la tabla entera.
 const buscarClienteEnNube = async (query: string): Promise<ClienteCartera | null> => {
   if (!supabase || !query) return null;
   try {
-    const porDni = await supabase.from(TABLA_CARTERA).select('*').eq('dni', query).maybeSingle();
-    if (!porDni.error && porDni.data) return aClienteCartera(porDni.data as FilaCartera);
-
-    const porGrupo = await supabase.from(TABLA_CARTERA).select('*').eq('grupo_orden', query).maybeSingle();
-    if (!porGrupo.error && porGrupo.data) return aClienteCartera(porGrupo.data as FilaCartera);
-
-    return null;
+    const { data, error } = await supabase.rpc('buscar_cliente_publico', { p_query: query });
+    if (error || !data || data.length === 0) return null;
+    return aClienteCartera(data[0] as FilaCartera);
   } catch {
     return null;
   }
@@ -264,16 +265,15 @@ export const obtenerAdjudicadosDeNube = async (): Promise<AdjudicadoSAP[] | null
   }
 };
 
+// Mismo motivo que buscarClienteEnNube: vía `buscar_adjudicado_publico` (security
+// definer) en vez de un SELECT directo, ya que `adjudicados` tampoco es legible por
+// `anon`.
 const buscarAdjudicadoEnNube = async (grupoOrden: string): Promise<AdjudicadoSAP | null> => {
   if (!supabase || !grupoOrden) return null;
   try {
-    const { data, error } = await supabase
-      .from(TABLA_ADJUDICADOS)
-      .select('*')
-      .eq('grupo_orden', grupoOrden)
-      .maybeSingle();
-    if (error || !data) return null;
-    return aAdjudicadoSAP(data as FilaAdjudicado);
+    const { data, error } = await supabase.rpc('buscar_adjudicado_publico', { p_grupo_orden: grupoOrden });
+    if (error || !data || data.length === 0) return null;
+    return aAdjudicadoSAP(data[0] as FilaAdjudicado);
   } catch {
     return null;
   }
